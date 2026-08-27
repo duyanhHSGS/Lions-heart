@@ -4,7 +4,7 @@
 
 Lions-heart is a fork built on top of Cor Leonis, but this repository is allowed to evolve freely inside `cor_beings/` as long as the rules in this file are followed.
 
-The current Beings are examples and starter material. They are not sacred architecture. Lions-heart may add, replace, move, rewrite, or delete them when the real harness grows.
+The current Beings are the first deliberately tiny harness spine. They are real Lions-heart product code, but they are still allowed to be replaced, split, or rewritten as better Being boundaries prove themselves.
 
 ## Ownership
 
@@ -93,7 +93,7 @@ Built-in Lions-heart Beings that should start automatically are listed by `cor_b
 
 Keep that list deterministic. Treat it as composition, not as hidden control flow.
 
-The current registered Beings are examples. Their presence today does not make them permanent product architecture.
+The current registered Beings are the first tiny harness composition. Their presence today proves the product shape, not permanent implementation details; future replacements must keep the same ordinary-Being rules.
 
 ## Design rule
 
@@ -146,17 +146,21 @@ Use the repository virtual environment's Python and pytest.
 
 Inherited tests that exist only to police upstream Cor Leonis behavior are not sacred Lions-heart tests. They may be deleted when they no longer protect Lions-heart behavior. Do not delete useful coverage merely to make a failing suite green.
 
-## Current examples
+## Current tiny harness
 
-These are starter/example Beings, not permanent Lions-heart architecture:
+The first real Lions-heart harness is intentionally small:
 
-- `HelloWorld`
-- `HelloMoon`
-- `HelloSun`
-- `Watcher`
-- `Dashboard`
+- `SessionBeing` — owns one in-memory append-only event history;
+- `PromptBeing` — snapshots session events plus the currently exposed tool names;
+- `ToolShelfBeing` — directly depends on and indexes the three starter tools by name;
+- `LionBeing` — deterministic fake model using the provider-neutral `ModelReply` / `ToolCall` shapes;
+- `AgentLoopBeing` — drives model → tools → model until a final reply or step limit;
+- `CliBeing` — one-shot product mouth: one message in, one final reply printed, then return;
+- `ReadBeing` — reads one UTF-8 text file;
+- `EditBeing` — replaces one UTF-8 text file;
+- `BashBeing` — runs one argv-style subprocess command without an intermediate shell.
 
-They may be replaced or removed as real harness Beings arrive.
+This is a starting spine, not a promise that every class or contract is final. `ToolShelfBeing` intentionally uses direct concrete tool dependencies in this first cut; dynamic Life-owned tool registration can replace that when the product actually needs it.
 
 ## Documentation law
 
@@ -173,6 +177,8 @@ Whenever Lions-heart adds, removes, moves, renames, or materially changes produc
 
 ## TODO
 
-- TODO: Replace the example Being set with the first minimal Lions-heart harness Beings.
+- TODO: Replace the deterministic fake `LionBeing` with a separate real model-provider Being while keeping the tiny reply contract provider-neutral.
+- TODO: Replace `ToolShelfBeing`'s direct starter-tool dependencies with Life-owned dynamic registration only when dynamic tools are actually needed.
+- TODO: Add a real process CLI entrypoint around `CliBeing` without putting the application's wait loop inside a Being birth.
 - TODO: Add automated scaffolding only if repeated Being boilerplate becomes large enough to justify it.
-- TODO: Add scale tests as soon as indexed tool/event/prompt registries become real product features.
+- TODO: Add large-count scale tests when dynamic tool/event/prompt registries become real product features.
