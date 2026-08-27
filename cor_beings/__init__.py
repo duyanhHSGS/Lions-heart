@@ -1,4 +1,4 @@
-"""Built-in Cor Leonis hands."""
+"""Lions-heart product Beings and current examples."""
 
 from cor_being import Being
 
@@ -9,9 +9,9 @@ from .hello_world import HelloWorld
 from .watcher import Watcher
 
 
-# TODO: Keep built-in hand listing centralized here and aligned with this package's README.
+# TODO: Replace the example composition with the first minimal Lions-heart harness Beings.
 def get_beings() -> tuple[type[Being], ...]:
-    """Return all built-in hand Being classes."""
+    """Return the current example Being classes in deterministic order."""
     return (HelloWorld, HelloMoon, HelloSun, Watcher, Dashboard)
 
 
