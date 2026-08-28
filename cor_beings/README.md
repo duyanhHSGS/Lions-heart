@@ -4,7 +4,7 @@
 
 Lions-heart is a fork built on top of Cor Leonis, but this repository is allowed to evolve freely inside `cor_beings/` as long as the rules in this file are followed.
 
-The current Beings are the first deliberately tiny harness spine. They are real Lions-heart product code, but they are still allowed to be replaced, split, or rewritten as better Being boundaries prove themselves.
+The current Beings form Lion's remote-provider application spine. They are real product code, but they remain replaceable when clearer Being boundaries prove themselves.
 
 ## Ownership
 
@@ -93,7 +93,7 @@ Built-in Lions-heart Beings that should start automatically are listed by `cor_b
 
 Keep that list deterministic. Treat it as composition, not as hidden control flow.
 
-The current registered Beings are the first tiny harness composition. Their presence today proves the product shape, not permanent implementation details; future replacements must keep the same ordinary-Being rules.
+The registered Beings compose storage, owner security, remote providers, conversations, approvals, tools, turns, and adapters. Their presence proves the product shape, not permanent implementation details; future replacements must keep the same ordinary-Being rules.
 
 ## Design rule
 
@@ -146,22 +146,17 @@ Use the repository virtual environment's Python and pytest.
 
 Inherited tests that exist only to police upstream Cor Leonis behavior are not sacred Lions-heart tests. They may be deleted when they no longer protect Lions-heart behavior. Do not delete useful coverage merely to make a failing suite green.
 
-## Current tiny harness
+## Current Lion application spine
 
-The first real Lions-heart harness is intentionally small:
+- `StorageBeing`, `SettingsBeing`, and `AuthBeing` own migrations, safe settings, encrypted provider credentials, the single owner, and expiring server sessions.
+- `OpenAIProviderBeing`, `AnthropicProviderBeing`, and `GeminiProviderBeing` normalize remote streaming behind `ModelGatewayBeing`; `LionBeing` is only an injectable deterministic test fake.
+- `SessionBeing` owns durable or temporary conversation history; `ProjectsBeing` owns searchable project metadata and assignment targets.
+- `TurnManagerBeing` owns background turns, cancellation, persisted ordered events, and resumable SSE traces.
+- `ApprovalBeing` makes every tool call wait for an explicit, expiring, duplicate-safe owner decision and executes an approved call once.
+- `WorkspaceBeing`, `ReadBeing`, `EditBeing`, `BashBeing`, and `ToolShelfBeing` provide indexed schemas plus a selected-project path boundary.
+- `WebUiBeing` serves the authenticated build-free module UI from birth-cached, content-hashed assets; `CliBeing` keeps the blocking compatibility adapter.
 
-- `SessionBeing` — owns one in-memory append-only event history;
-- `PromptBeing` — snapshots session events plus the currently exposed tool names;
-- `ToolShelfBeing` — directly depends on and indexes the three starter tools by name;
-- `LionBeing` — deterministic fake model using the provider-neutral `ModelReply` / `ToolCall` shapes;
-- `AgentLoopBeing` — drives model → tools → model until a final reply or step limit;
-- `WebUiBeing` — dependency-free loopback HTTP adapter with cached static HTML/CSS/JavaScript, authoritative Session rendering, and lifecycle-owned server/thread cleanup;
-- `CliBeing` — product mouth: keeps `run_once()` for one-shot calls and auto-starts the interactive terminal helper on a real TTY;
-- `ReadBeing` — reads one UTF-8 text file;
-- `EditBeing` — replaces one UTF-8 text file;
-- `BashBeing` — runs one argv-style subprocess command without an intermediate shell.
-
-This is a starting spine, not a promise that every class or contract is final. `ToolShelfBeing` intentionally uses direct concrete tool dependencies in this first cut; dynamic Life-owned tool registration can replace that when the product actually needs it.
+This is a usable remote-chat/security foundation, not a promise that every class or contract is final. Dynamic tool and MCP registration can replace the starter concrete tool composition when that wave lands.
 
 ## Documentation law
 
@@ -178,10 +173,11 @@ Whenever Lions-heart adds, removes, moves, renames, or materially changes produc
 
 ## TODO
 
-- TODO: Replace the deterministic fake `LionBeing` with a separate real model-provider Being while keeping the tiny reply contract provider-neutral.
 - TODO: Replace `ToolShelfBeing`'s direct starter-tool dependencies with Life-owned dynamic registration only when dynamic tools are actually needed.
 - TODO: Add optional history-aware CLI line editing without sacrificing cancellable reads or Life-owned thread joining.
-- TODO: Wire the preserved Unsloth Studio shell controls only through future model, tool, permission, search, attachment, project, settings, and persistence Beings.
-- TODO: Add provider-neutral streaming/incremental session delivery without creating a second UI-owned history.
+- TODO: Add attachment extraction, MCP connections, cloud-media jobs, recipes, and API-activity screens through their own ordinary Beings.
+- TODO: Bound idle per-conversation lock and completed-turn caches after large chat churn.
+- TODO: Keep Web Search disabled until a dedicated security and provider contract is deliberately implemented.
+- TODO: Add math and Mermaid only through audited build-free renderers, and semantic embeddings only as an optional retrieval layer.
 - TODO: Add automated scaffolding only if repeated Being boilerplate becomes large enough to justify it.
 - TODO: Add large-count scale tests when dynamic tool/event/prompt registries become real product features.

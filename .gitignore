@@ -57,3 +57,4 @@ project.py
 *.pid
 *.sock
 git-plz-ignore/
+user/

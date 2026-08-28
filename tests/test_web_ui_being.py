@@ -1,12 +1,13 @@
 """Focused product tests for the pure-Python web UI Being."""
 
 # TODO: Add real-browser accessibility snapshots when a dependency-free QA path exists.
-# TODO: Add streaming tests when the product gains a streaming event contract.
+# TODO: Add browser-engine reconnect coverage in addition to transport-level SSE tests.
 
 from __future__ import annotations
 
 import http.client
 import json
+import re
 import socket
 from collections.abc import Iterator
 from pathlib import Path
@@ -17,8 +18,19 @@ import pytest
 import cor_beings.web_ui as web_ui_module
 from cor_being import Life
 from cor_beings.agent_loop import AgentLoopBeing
+from cor_beings.auth import AuthBeing
 from cor_beings.lion import ToolCall
+from cor_beings.providers import (
+    AnthropicProviderBeing,
+    GeminiProviderBeing,
+    OpenAIProviderBeing,
+    ProviderRegistryBeing,
+)
+from cor_beings.projects import ProjectsBeing
 from cor_beings.session import SessionBeing
+from cor_beings.settings import SettingsBeing
+from cor_beings.storage import StorageBeing
+from cor_beings.turn_manager import TurnManagerBeing
 from cor_beings.web_ui import WebUiBeing
 from cor_beings.web_ui.server import MAX_BODY_BYTES, MAX_MESSAGE_CHARS, serialize_events
 
@@ -43,34 +55,116 @@ class RecordingAgent:
         return reply
 
 
+class RecordingTurns:
+    def __init__(self) -> None:
+        self.created: list[tuple[str, str]] = []
+
+    def create(self, conversation_id: str, message: str) -> str:
+        self.created.append((conversation_id, message))
+        return "turn-test"
+
+    def events_after(self, _turn_id: str, _after: int):
+        return (({"sequence": 1, "kind": "turn_completed", "data": {}},), "completed")
+
+    def wait_for_events(self, _turn_id: str, _after: int, _timeout: float) -> None:
+        return None
+
+    def cancel(self, _turn_id: str) -> None:
+        return None
+
+    def approvals(self, _turn_id: str):
+        return ()
+
+    def decide_approval(self, _approval_id: str, _approved: bool) -> None:
+        return None
+
+
+class RecordingProjects:
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, object]] = {}
+
+    def list(self):
+        return tuple(self.rows.values())
+
+    def create(self, name: str, *, workspace: str | None = None) -> str:
+        project_id = f"project-{len(self.rows) + 1}"
+        self.rows[project_id] = {"id": project_id, "name": name, "workspace": workspace}
+        return project_id
+
+    def rename(self, project_id: str, name: str) -> None:
+        if project_id not in self.rows:
+            raise LookupError
+        self.rows[project_id]["name"] = name
+
+    def delete(self, project_id: str) -> None:
+        if self.rows.pop(project_id, None) is None:
+            raise LookupError
+
+
 class UiWorld:
     name = "web-test"
     news = None
     alive = ()
 
-    def __init__(self, agent: RecordingAgent, session: SessionBeing) -> None:
-        self.agent = agent
-        self.session = session
+    def __init__(self, *instances: object, turns: RecordingTurns | None = None, projects: RecordingProjects | None = None) -> None:
+        self.instances = {type(instance): instance for instance in instances}
+        self.agent = next((item for item in instances if isinstance(item, RecordingAgent)), None)
+        self.turns = turns
+        self.projects = projects
 
     def need(self, being_type):
-        if being_type is AgentLoopBeing:
+        if being_type is AgentLoopBeing and self.agent is not None:
             return self.agent
-        if being_type is SessionBeing:
-            return self.session
-        raise LookupError(being_type)
+        if being_type is TurnManagerBeing and self.turns is not None:
+            return self.turns
+        if being_type is ProjectsBeing and self.projects is not None:
+            return self.projects
+        try:
+            return self.instances[being_type]
+        except KeyError as error:
+            raise LookupError(being_type) from error
 
 
 @pytest.fixture
-def live_ui() -> Iterator[tuple[WebUiBeing, RecordingAgent, SessionBeing, Life]]:
+def live_ui(tmp_path: Path) -> Iterator[tuple[WebUiBeing, RecordingAgent, SessionBeing, Life]]:
+    storage = StorageBeing(data_root=tmp_path / "runtime")
+    settings = SettingsBeing()
+    auth = AuthBeing()
     session = SessionBeing()
     agent = RecordingAgent(session)
+    turns = RecordingTurns()
+    projects = RecordingProjects()
+    openai = OpenAIProviderBeing()
+    anthropic = AnthropicProviderBeing()
+    gemini = GeminiProviderBeing()
+    providers = ProviderRegistryBeing()
+    support = (storage, settings, auth, session, openai, anthropic, gemini, providers)
+    world = UiWorld(agent, *support, turns=turns, projects=projects)
+    support_lives: list[Life] = []
+    for being in support:
+        being_life = Life(being.name)
+        being.birth(world, being_life)  # type: ignore[arg-type]
+        support_lives.append(being_life)
     ui = WebUiBeing(port=0)
     life = Life("web_ui")
-    ui.birth(UiWorld(agent, session), life)  # type: ignore[arg-type]
+    ui.birth(world, life)  # type: ignore[arg-type]
+    setattr(ui, "_test_world", world)
+    status, headers, body = request(
+        ui,
+        "POST",
+        "/api/auth/setup",
+        body=json.dumps({"username": "owner", "password": "lion-password"}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == 200
+    setattr(ui, "_test_cookie", headers["Set-Cookie"].split(";", 1)[0])
+    setattr(ui, "_test_csrf", json.loads(body)["csrf_token"])
     try:
         yield ui, agent, session, life
     finally:
         life.die()
+        for being_life in reversed(support_lives):
+            being_life.die()
 
 
 def request(
@@ -81,10 +175,15 @@ def request(
     body: bytes | None = None,
     headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, str], bytes]:
+    effective_headers = dict(headers or {})
+    if hasattr(ui, "_test_cookie"):
+        effective_headers.setdefault("Cookie", getattr(ui, "_test_cookie"))
+        if method in ("POST", "PUT", "PATCH", "DELETE"):
+            effective_headers.setdefault("X-CSRF-Token", getattr(ui, "_test_csrf"))
     parsed = urlsplit(ui.url or "")
     connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=2)
     try:
-        connection.request(method, path, body=body, headers=headers or {})
+        connection.request(method, path, body=body, headers=effective_headers)
         response = connection.getresponse()
         return response.status, dict(response.getheaders()), response.read()
     finally:
@@ -138,16 +237,14 @@ def test_web_ui_serves_text_only_chat_shell_and_controls(live_ui) -> None:
     assert "<img" not in page
     for label in (
         "New chat",
-        "Model hub",
+        "Models",
         "Projects",
         "Images",
         "Video",
-        "Train",
         "More",
         "Audio",
         "Recipes",
-        "Export",
-        "API",
+        "API Activity",
         "Settings",
         "Guided Tour",
         "Add photos &amp; files",
@@ -156,9 +253,9 @@ def test_web_ui_serves_text_only_chat_shell_and_controls(live_ui) -> None:
         "Chat with Files",
         "MCP",
         "Ask for approval",
-        "Approve for me",
-        "Run automatically",
-        "Full access",
+        "Providers",
+        "Tools &amp; MCP",
+        "Security",
     ):
         assert label in page
 
@@ -198,11 +295,28 @@ def test_web_ui_serves_owned_static_assets_without_stale_browser_cache(
     assert needle in body
 
 
+def test_html_uses_content_hashed_immutable_assets(live_ui) -> None:
+    status, headers, body = request(live_ui[0], "GET", "/")
+    assert status == 200
+    assert headers["Cache-Control"] == "no-store"
+    match = re.search(rb'href="(/styles\.[0-9a-f]{12}\.css)"', body)
+    assert match is not None
+    status, headers, css = request(live_ui[0], "GET", match.group(1).decode("ascii"))
+    assert status == 200
+    assert headers["Cache-Control"] == "public, max-age=31536000, immutable"
+    assert b"--primary: #17b88b" in css
+
+
 def test_frontend_has_no_node_manifest_or_external_runtime_assets() -> None:
     static = ROOT / "cor_beings" / "web_ui" / "static"
     combined = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (static / "index.html", static / "styles.css", static / "app.js")
+        for path in (
+            static / "index.html",
+            static / "styles.css",
+            static / "app.js",
+            static / "markdown.js",
+        )
     )
     assert not (ROOT / "package.json").exists()
     assert not (ROOT / "package-lock.json").exists()
@@ -252,7 +366,99 @@ def test_web_ui_session_api_uses_authoritative_session(live_ui) -> None:
             }
         ],
         "count": 1,
+        "conversation_id": session.conversation_id,
+        "temporary": False,
     }
+
+
+def test_protected_api_rejects_missing_cookie(live_ui) -> None:
+    ui, _agent, _session, _life = live_ui
+    cookie = getattr(ui, "_test_cookie")
+    delattr(ui, "_test_cookie")
+    try:
+        status, _headers, body = request(ui, "GET", "/api/settings")
+    finally:
+        setattr(ui, "_test_cookie", cookie)
+    assert status == 401
+    assert json.loads(body)["error"] == "authentication required"
+
+
+def test_mutation_rejects_bad_csrf(live_ui) -> None:
+    ui, _agent, _session, _life = live_ui
+    status, _headers, body = request(
+        ui,
+        "POST",
+        "/api/settings",
+        body=b'{"changes":{"theme":"dark"}}',
+        headers={"Content-Type": "application/json", "X-CSRF-Token": "wrong"},
+    )
+    assert status == 403
+    assert json.loads(body)["error"] == "invalid CSRF token"
+
+
+def test_provider_key_api_returns_only_masked_state(live_ui) -> None:
+    ui, _agent, _session, _life = live_ui
+    secret = "sk-super-secret-tail"
+    status, payload = json_request(
+        ui,
+        {"provider": "openai", "secret": secret},
+        path="/api/provider-key",
+    )
+    assert status == 200
+    assert payload["providers"]["openai"] == {"configured": True, "suffix": "tail"}
+    assert secret not in json.dumps(payload)
+
+
+def test_background_turn_creation_and_resumable_sse(live_ui) -> None:
+    ui, _agent, session, _life = live_ui
+    status, payload = json_request(
+        ui,
+        {"message": "stream me"},
+        path=f"/api/sessions/{session.conversation_id}/turns",
+    )
+    assert status == 202
+    assert payload == {"turn_id": "turn-test"}
+    status, headers, body = request(ui, "GET", "/api/turns/turn-test/events?after=0")
+    assert status == 200
+    assert headers["Content-Type"] == "text/event-stream; charset=utf-8"
+    assert b"id: 1" in body
+    assert b"event: turn_completed" in body
+
+
+def test_turn_cancel_requires_csrf_and_accepts_valid_request(live_ui) -> None:
+    ui, _agent, _session, _life = live_ui
+    status, _headers, _body = request(
+        ui,
+        "DELETE",
+        "/api/turns/turn-test",
+        headers={"X-CSRF-Token": "wrong"},
+    )
+    assert status == 403
+    status, _headers, body = request(ui, "DELETE", "/api/turns/turn-test")
+    assert status == 202
+    assert json.loads(body)["cancelled"] is True
+
+
+def test_project_json_crud_routes(live_ui) -> None:
+    ui, _agent, _session, _life = live_ui
+    status, created = json_request(ui, {"name": "Lion Lab"}, path="/api/projects")
+    assert status == 201
+    project_id = created["id"]
+    status, _headers, body = request(ui, "GET", "/api/projects")
+    assert status == 200
+    assert json.loads(body)["projects"][0]["name"] == "Lion Lab"
+    status, _headers, body = request(
+        ui,
+        "PUT",
+        f"/api/projects/{project_id}",
+        body=b'{"name":"Roar Lab"}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == 200
+    assert json.loads(body)["name"] == "Roar Lab"
+    status, _headers, body = request(ui, "DELETE", f"/api/projects/{project_id}")
+    assert status == 200
+    assert json.loads(body)["deleted"] is True
 
 
 def test_web_ui_turn_api_runs_agent_and_returns_reply(live_ui) -> None:
@@ -312,19 +518,13 @@ def test_web_ui_rejects_oversized_body_before_reading_it(live_ui) -> None:
     assert json.loads(body) == {"error": "request body too large"}
 
 
-def test_web_ui_translates_agent_failure_without_leaking_details() -> None:
-    session = SessionBeing()
-    agent = RecordingAgent(session, failure=RuntimeError("secret path C:/nope"))
-    ui = WebUiBeing(port=0)
-    life = Life("web_ui")
-    ui.birth(UiWorld(agent, session), life)  # type: ignore[arg-type]
-    try:
-        status, payload = json_request(ui, {"message": "boom"})
-        assert status == 500
-        assert payload == {"error": "turn failed", "kind": "RuntimeError"}
-        assert "secret" not in json.dumps(payload)
-    finally:
-        life.die()
+def test_web_ui_translates_agent_failure_without_leaking_details(live_ui) -> None:
+    ui, agent, _session, _life = live_ui
+    agent.failure = RuntimeError("secret path C:/nope")
+    status, payload = json_request(ui, {"message": "boom"})
+    assert status == 500
+    assert payload == {"error": "turn failed", "kind": "RuntimeError"}
+    assert "secret" not in json.dumps(payload)
 
 
 def test_web_ui_unknown_routes_and_unsupported_methods_are_boring(live_ui) -> None:
@@ -361,7 +561,7 @@ def test_web_ui_life_closes_socket_and_forgets_dependencies(live_ui) -> None:
         socket.create_connection((address.hostname or "127.0.0.1", address.port or 0), timeout=0.2)
 
 
-def test_web_ui_failed_thread_start_rolls_back_server(monkeypatch) -> None:
+def test_web_ui_failed_thread_start_rolls_back_server(monkeypatch, live_ui) -> None:
     closed: list[str] = []
 
     class FakeServer:
@@ -384,11 +584,10 @@ def test_web_ui_failed_thread_start_rolls_back_server(monkeypatch) -> None:
         "create_server",
         lambda **_kwargs: (FakeServer(), FakeThread()),
     )
-    session = SessionBeing()
     ui = WebUiBeing(port=0)
     life = Life("web_ui")
     with pytest.raises(RuntimeError, match="thread exploded"):
-        ui.birth(UiWorld(RecordingAgent(session), session), life)  # type: ignore[arg-type]
+        ui.birth(getattr(live_ui[0], "_test_world"), life)  # type: ignore[arg-type]
     life.die()
     assert closed == ["closed"]
     assert ui.url is None

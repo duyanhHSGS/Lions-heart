@@ -36,7 +36,7 @@ class LionBeing(Being):
         self._seen_prompts: list[PromptSnapshot] = []
 
     def birth(self, world: World, life: Life) -> None:
-        # TODO: Add a separate real model-provider Being while keeping ModelReply provider-neutral.
+        # TODO: Keep this deterministic fake aligned with provider events used by tests.
         return None
 
     @property

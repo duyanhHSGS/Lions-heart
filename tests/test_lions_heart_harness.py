@@ -14,15 +14,27 @@ import cor_beings.cli.process as cli_process
 from cor_being import Being, Life
 from cor_beings import (
     AgentLoopBeing,
+    AnthropicProviderBeing,
+    ApprovalBeing,
+    AuthBeing,
     BashBeing,
     CliBeing,
     EditBeing,
     LionBeing,
+    GeminiProviderBeing,
+    ModelGatewayBeing,
+    OpenAIProviderBeing,
     PromptBeing,
+    ProjectsBeing,
+    ProviderRegistryBeing,
     ReadBeing,
     SessionBeing,
+    SettingsBeing,
+    StorageBeing,
     ToolShelfBeing,
+    TurnManagerBeing,
     WebUiBeing,
+    WorkspaceBeing,
     get_beings,
 )
 from cor_beings.cli.process import run_console, start_console_thread
@@ -51,11 +63,22 @@ class FakeWorld:
 
 
 class Harness:
-    def __init__(self) -> None:
-        self.instances = {
-            being_type: WebUiBeing(port=0) if being_type is WebUiBeing else being_type()
-            for being_type in get_beings()
-        }
+    def __init__(self, data_root: Path) -> None:
+        self.instances = {}
+        for being_type in get_beings():
+            if being_type is WebUiBeing:
+                instance = WebUiBeing(port=0)
+            elif being_type is StorageBeing:
+                instance = StorageBeing(data_root=data_root)
+            elif being_type is ModelGatewayBeing:
+                instance = ModelGatewayBeing(fake_provider=LionBeing())
+            elif being_type is ApprovalBeing:
+                instance = ApprovalBeing(auto_approve_for_tests=True)
+            elif being_type is WorkspaceBeing:
+                instance = WorkspaceBeing(root=data_root.parent)
+            else:
+                instance = being_type()
+            self.instances[being_type] = instance
         self.world = FakeWorld(*self.instances.values())
         self.lives: dict[type[Being], Life] = {}
         for being_type in get_beings():
@@ -64,6 +87,8 @@ class Harness:
             self.instances[being_type].birth(self.world, life)
 
     def get(self, being_type):
+        if being_type is LionBeing:
+            return self.instances[ModelGatewayBeing].fake_provider
         return self.instances[being_type]
 
     def die(self) -> None:
@@ -72,24 +97,35 @@ class Harness:
 
 
 @pytest.fixture
-def harness() -> Harness:
-    value = Harness()
+def harness(tmp_path: Path) -> Harness:
+    value = Harness(tmp_path / "runtime")
     try:
         yield value
     finally:
         value.die()
 
 
-def test_composition_is_the_ten_tiny_harness_beings() -> None:
+def test_composition_is_the_provider_first_lion_beings() -> None:
     assert get_beings() == (
+        StorageBeing,
+        SettingsBeing,
+        AuthBeing,
         SessionBeing,
-        LionBeing,
+        OpenAIProviderBeing,
+        AnthropicProviderBeing,
+        GeminiProviderBeing,
+        ProviderRegistryBeing,
+        ModelGatewayBeing,
+        WorkspaceBeing,
+        ProjectsBeing,
         ReadBeing,
         EditBeing,
         BashBeing,
         ToolShelfBeing,
+        ApprovalBeing,
         PromptBeing,
         AgentLoopBeing,
+        TurnManagerBeing,
         WebUiBeing,
         CliBeing,
     )
@@ -104,10 +140,40 @@ def test_composition_contains_only_beings_with_unique_lowercase_names() -> None:
 
 
 def test_dependency_graph_is_explicit_and_tiny() -> None:
+    assert SettingsBeing.needs == (StorageBeing,)
+    assert AuthBeing.needs == (StorageBeing,)
+    assert SessionBeing.needs == (StorageBeing,)
+    assert ProviderRegistryBeing.needs == (
+        OpenAIProviderBeing,
+        AnthropicProviderBeing,
+        GeminiProviderBeing,
+    )
+    assert ModelGatewayBeing.needs == (ProviderRegistryBeing, SettingsBeing)
+    assert ReadBeing.needs == (WorkspaceBeing,)
+    assert ProjectsBeing.needs == (StorageBeing, WorkspaceBeing)
+    assert EditBeing.needs == (WorkspaceBeing,)
+    assert BashBeing.needs == (WorkspaceBeing,)
     assert ToolShelfBeing.needs == (ReadBeing, EditBeing, BashBeing)
     assert PromptBeing.needs == (SessionBeing, ToolShelfBeing)
-    assert AgentLoopBeing.needs == (SessionBeing, PromptBeing, ToolShelfBeing, LionBeing)
-    assert WebUiBeing.needs == (AgentLoopBeing, SessionBeing)
+    assert ApprovalBeing.needs == (StorageBeing, ToolShelfBeing, SessionBeing)
+    assert AgentLoopBeing.needs == (
+        SessionBeing,
+        PromptBeing,
+        ToolShelfBeing,
+        ModelGatewayBeing,
+        ApprovalBeing,
+    )
+    assert TurnManagerBeing.needs == (AgentLoopBeing, SessionBeing, StorageBeing, ApprovalBeing)
+    assert WebUiBeing.needs == (
+        AgentLoopBeing,
+        SessionBeing,
+        AuthBeing,
+        SettingsBeing,
+        ProviderRegistryBeing,
+        StorageBeing,
+        TurnManagerBeing,
+        ProjectsBeing,
+    )
     assert CliBeing.needs == (AgentLoopBeing,)
 
 

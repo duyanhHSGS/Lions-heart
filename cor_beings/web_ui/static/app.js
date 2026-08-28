@@ -1,33 +1,57 @@
 /*
-TODO: Connect every data-todo control through an ordinary product Being.
-TODO: Replace complete session refreshes with lifecycle-owned incremental events.
-TODO: Add cancellation when AgentLoopBeing exposes a provider-neutral contract.
-TODO: Persist threads only after SessionBeing gains an owned storage boundary.
-TODO: Keep this script dependency-free and executable directly by the browser.
+TODO: Add a richer non-blocking approval drawer after the safe confirm-based gate proves itself.
+TODO: Add math and Mermaid only after a safe build-free renderer contract exists.
+TODO: Keep Web Search disabled until its provider/security contract is chosen.
 */
 
 "use strict";
 
-const appShell = document.querySelector("#app-shell");
-const thread = document.querySelector("#thread");
-const form = document.querySelector("#chat-form");
-const input = document.querySelector("#message");
-const sendButton = document.querySelector("#send-button");
-const messages = document.querySelector("#messages");
-const messageScroll = document.querySelector("#message-scroll");
-const recents = document.querySelector("#recents");
-const toast = document.querySelector("#toast");
-const themeToggle = document.querySelector("#theme-toggle");
-const permissionLabel = document.querySelector("#permission-label");
+import { renderMarkdownSubset } from "./markdown.js";
+
+const $ = (selector) => document.querySelector(selector);
+const appShell = $("#app-shell");
+const thread = $("#thread");
+const form = $("#chat-form");
+const input = $("#message");
+const sendButton = $("#send-button");
+const messages = $("#messages");
+const messageScroll = $("#message-scroll");
+const recents = $("#recents");
+const toast = $("#toast");
+const themeToggle = $("#theme-toggle");
+const permissionLabel = $("#permission-label");
+const authScreen = $("#auth-screen");
+const settingsModal = $("#settings-modal");
+const settingsForm = $("#settings-form");
 
 let toastTimer = null;
 let busy = false;
+let csrfToken = window.sessionStorage.getItem("lion-csrf") || "";
+let settingsSnapshot = null;
+let currentConversationId = "";
+let activeTurnId = "";
 
 function showToast(text) {
   toast.textContent = text;
   toast.classList.add("visible");
   window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 2800);
+  toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 3200);
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("Accept", "application/json");
+  if (options.method && options.method !== "GET" && csrfToken) headers.set("X-CSRF-Token", csrfToken);
+  const response = await fetch(path, { ...options, headers });
+  let payload = {};
+  try { payload = await response.json(); }
+  catch (_error) { payload = { error: `request failed (${response.status})` }; }
+  if (!response.ok) {
+    const error = new Error(payload.kind ? `${payload.error}: ${payload.kind}` : payload.error || `request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
 }
 
 function closeMenus(exceptId = null) {
@@ -51,13 +75,12 @@ function textForEvent(event) {
 
 function makeMessage(event) {
   const article = document.createElement("article");
-  const knownKind = ["user", "assistant", "tool_result", "tool_error", "agent_error"].includes(event.kind)
-    ? event.kind
-    : "tool_result";
+  const knownKind = ["user", "assistant", "tool_result", "tool_error", "agent_error"].includes(event.kind) ? event.kind : "tool_result";
   article.className = `message ${knownKind}`;
   const card = document.createElement("div");
   card.className = "message-card";
-  card.textContent = textForEvent(event);
+  if (knownKind === "assistant") card.append(renderMarkdownSubset(textForEvent(event)));
+  else card.textContent = textForEvent(event);
   article.append(card);
   return article;
 }
@@ -66,49 +89,137 @@ function renderEvents(events) {
   messages.replaceChildren(...events.map(makeMessage));
   const hasMessages = events.length > 0;
   thread.classList.toggle("has-messages", hasMessages);
-  recents.hidden = !hasMessages;
-  if (hasMessages) {
-    window.requestAnimationFrame(() => {
-      messageScroll.scrollTop = messageScroll.scrollHeight;
-    });
-  }
+  if (hasMessages) window.requestAnimationFrame(() => { messageScroll.scrollTop = messageScroll.scrollHeight; });
 }
 
 async function loadSession() {
   try {
-    const response = await fetch("/api/session", { headers: { Accept: "application/json" } });
-    if (!response.ok) throw new Error(`session request failed (${response.status})`);
-    const payload = await response.json();
+    const payload = await apiFetch("/api/session");
+    currentConversationId = typeof payload.conversation_id === "string" ? payload.conversation_id : "";
     renderEvents(Array.isArray(payload.events) ? payload.events : []);
-  } catch (error) {
-    showToast(`Session could not load · ${error.message}`);
-  }
+  } catch (error) { if (error.status !== 401) showToast(`Session could not load · ${error.message}`); }
+}
+
+async function loadConversations() {
+  const payload = await apiFetch("/api/conversations");
+  const rows = Array.isArray(payload.conversations) ? payload.conversations : [];
+  recents.hidden = rows.length === 0;
+  recents.replaceChildren();
+  if (!rows.length) return;
+  const heading = document.createElement("h2");
+  heading.textContent = "Recents";
+  recents.append(heading);
+  rows.slice(0, 20).forEach((conversation) => {
+    const button = document.createElement("button");
+    button.className = "nav-row current-chat";
+    button.type = "button";
+    button.textContent = conversation.title || "New chat";
+    button.addEventListener("click", async () => {
+      await apiFetch("/api/conversations/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: conversation.id }) });
+      await loadSession();
+    });
+    recents.append(button);
+  });
 }
 
 function resizeInput() {
   input.style.height = "auto";
   input.style.height = `${Math.min(input.scrollHeight, 190)}px`;
-  sendButton.disabled = busy || input.value.trim().length === 0;
+  sendButton.disabled = !busy && input.value.trim().length === 0;
+  sendButton.setAttribute("aria-label", busy ? "Stop response" : "Send message");
+}
+
+function appendStreamingAssistant() {
+  const article = makeMessage({ kind: "assistant", data: { text: "" } });
+  messages.append(article);
+  thread.classList.add("has-messages");
+  return article.querySelector(".message-card");
+}
+
+async function answerApproval(turnId, approvalId) {
+  const payload = await apiFetch(`/api/turns/${encodeURIComponent(turnId)}/approvals`);
+  const approval = (payload.approvals || []).find((item) => item.id === approvalId);
+  if (!approval) throw new Error("approval details disappeared");
+  const details = `${approval.risk}\n\nTool: ${approval.tool}\nArguments:\n${JSON.stringify(approval.arguments, null, 2)}`;
+  const approved = window.confirm(`${details}\n\nAllow exactly once?`);
+  await apiFetch(`/api/approvals/${encodeURIComponent(approvalId)}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved }),
+  });
+}
+
+async function consumeTurn(turnId) {
+  let after = 0;
+  let finished = false;
+  let assistantCard = null;
+  let assistantText = "";
+  let paintQueued = false;
+  const paint = () => {
+    paintQueued = false;
+    if (assistantCard) assistantCard.replaceChildren(renderMarkdownSubset(assistantText));
+    messageScroll.scrollTop = messageScroll.scrollHeight;
+  };
+  while (!finished && activeTurnId === turnId) {
+    const response = await fetch(`/api/turns/${encodeURIComponent(turnId)}/events?after=${after}`, {
+      headers: { Accept: "text/event-stream" },
+      credentials: "same-origin",
+    });
+    if (!response.ok || !response.body) throw new Error(`event stream failed (${response.status})`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (!finished) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() || "";
+      for (const frame of frames) {
+        if (!frame || frame.startsWith(":")) continue;
+        let kind = "message";
+        let data = {};
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("id:")) after = Number.parseInt(line.slice(3).trim(), 10) || after;
+          else if (line.startsWith("event:")) kind = line.slice(6).trim();
+          else if (line.startsWith("data:")) data = JSON.parse(line.slice(5).trim());
+        }
+        if (kind === "text_delta") {
+          if (!assistantCard) assistantCard = appendStreamingAssistant();
+          assistantText += typeof data.text === "string" ? data.text : "";
+          if (!paintQueued) { paintQueued = true; window.requestAnimationFrame(paint); }
+        } else if (kind === "approval_required") {
+          await answerApproval(turnId, data.approval_id);
+        } else if (["turn_completed", "turn_cancelled", "turn_failed"].includes(kind)) {
+          finished = true;
+        } else if (kind === "normalized_error") {
+          showToast(data.message || "Turn failed");
+        }
+      }
+      if (done) break;
+    }
+  }
 }
 
 async function sendMessage(message) {
   busy = true;
   input.disabled = true;
-  sendButton.disabled = true;
+  sendButton.disabled = false;
+  sendButton.setAttribute("aria-label", "Stop response");
   closeMenus();
   try {
-    const response = await fetch("/api/turn", {
+    if (!currentConversationId) await loadSession();
+    const payload = await apiFetch(`/api/sessions/${encodeURIComponent(currentConversationId)}/turns`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.kind ? `${payload.error}: ${payload.kind}` : payload.error);
+    activeTurnId = payload.turn_id;
+    await consumeTurn(activeTurnId);
+  } catch (error) { showToast(`Turn failed · ${error.message}`); }
+  finally {
+    activeTurnId = "";
     await loadSession();
-  } catch (error) {
-    showToast(`Turn failed · ${error.message}`);
-    await loadSession();
-  } finally {
+    await loadConversations();
     busy = false;
     input.disabled = false;
     resizeInput();
@@ -116,10 +227,86 @@ async function sendMessage(message) {
   }
 }
 
+async function cancelActiveTurn() {
+  if (!activeTurnId) return;
+  await apiFetch(`/api/turns/${encodeURIComponent(activeTurnId)}`, { method: "DELETE" });
+}
+
+function applyTheme(theme) {
+  const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.classList.toggle("dark", dark);
+  themeToggle.textContent = dark ? "Light Mode" : "Dark Mode";
+}
+
+function showSettingsTab(name) {
+  document.querySelectorAll("[data-settings-tab]").forEach((button) => button.classList.toggle("active", button.dataset.settingsTab === name));
+  document.querySelectorAll("[data-settings-panel]").forEach((panel) => { panel.hidden = panel.dataset.settingsPanel !== name; });
+}
+
+function fillSettings(snapshot) {
+  settingsSnapshot = snapshot;
+  const values = snapshot.values || {};
+  for (const [name, value] of Object.entries(values)) {
+    const field = settingsForm.elements.namedItem(name);
+    if (field) field.value = value;
+  }
+  $("#active-model-label").textContent = values.default_text_model || "Configure provider";
+  applyTheme(values.theme || "system");
+  const keyFields = $("#provider-key-fields");
+  keyFields.replaceChildren();
+  for (const provider of ["openai", "anthropic", "gemini"]) {
+    const status = snapshot.providers && snapshot.providers[provider];
+    const label = document.createElement("label");
+    label.textContent = `${provider[0].toUpperCase()}${provider.slice(1)} API key ${status && status.configured ? `(saved ···${status.suffix})` : ""}`;
+    const field = document.createElement("input");
+    field.type = "password";
+    field.autocomplete = "off";
+    field.dataset.providerKey = provider;
+    field.placeholder = status && status.configured ? "Leave blank to keep saved key" : "Paste key";
+    label.append(field);
+    keyFields.append(label);
+  }
+}
+
+async function loadSettings() {
+  const snapshot = await apiFetch("/api/settings");
+  fillSettings(snapshot);
+  return snapshot;
+}
+
+async function openSettings(tab = "general") {
+  closeMenus();
+  settingsModal.hidden = false;
+  showSettingsTab(tab);
+  try { await loadSettings(); }
+  catch (error) { $("#settings-error").textContent = error.message; }
+}
+
+async function initialize() {
+  const status = await apiFetch("/api/auth/status");
+  if (typeof status.csrf_token === "string" && status.csrf_token) {
+    csrfToken = status.csrf_token;
+    window.sessionStorage.setItem("lion-csrf", csrfToken);
+  }
+  if (!status.authenticated) {
+    authScreen.hidden = false;
+    appShell.setAttribute("inert", "");
+    $("#auth-copy").textContent = status.setup_required ? "Create the single owner account." : "Sign in to Lion.";
+    $("#auth-submit").textContent = status.setup_required ? "Create owner" : "Sign in";
+    $("#auth-password").autocomplete = status.setup_required ? "new-password" : "current-password";
+    authScreen.dataset.mode = status.setup_required ? "setup" : "login";
+    return;
+  }
+  authScreen.hidden = true;
+  appShell.removeAttribute("inert");
+  await Promise.all([loadSession(), loadConversations(), loadSettings()]);
+}
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (busy) { void cancelActiveTurn(); return; }
   const message = input.value.trim();
-  if (!message || busy) return;
+  if (!message) return;
   input.value = "";
   resizeInput();
   void sendMessage(message);
@@ -127,78 +314,125 @@ form.addEventListener("submit", (event) => {
 
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-    event.preventDefault();
-    form.requestSubmit();
-  }
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+  if (event.key === "Escape" && busy) { event.preventDefault(); void cancelActiveTurn(); }
 });
 
 document.querySelectorAll(".menu-trigger[data-menu]").forEach((trigger) => {
   trigger.addEventListener("click", (event) => {
     event.stopPropagation();
-    const menuId = trigger.dataset.menu;
-    const menu = document.getElementById(menuId);
+    const menu = document.getElementById(trigger.dataset.menu);
     const opening = menu.hidden;
-    closeMenus(opening ? menuId : null);
+    closeMenus(opening ? trigger.dataset.menu : null);
     menu.hidden = !opening;
     trigger.setAttribute("aria-expanded", String(opening));
   });
 });
 
-document.querySelectorAll(".popup").forEach((popup) => {
-  popup.addEventListener("click", (event) => event.stopPropagation());
-});
+document.querySelectorAll(".popup").forEach((popup) => popup.addEventListener("click", (event) => event.stopPropagation()));
+document.querySelectorAll("[data-todo]").forEach((control) => control.addEventListener("click", () => { closeMenus(); showToast(`TODO · ${control.dataset.todo}`); }));
+document.querySelectorAll("[data-permission]").forEach((control) => control.addEventListener("click", () => { permissionLabel.textContent = "Ask for approval"; closeMenus(); showToast("Every tool call requires approval"); }));
 
-document.querySelectorAll("[data-todo]").forEach((control) => {
-  control.addEventListener("click", () => {
-    closeMenus();
-    showToast(`TODO · ${control.dataset.todo}`);
-  });
+$("#sidebar-toggle").addEventListener("click", () => { appShell.classList.toggle("sidebar-collapsed"); closeMenus(); });
+$("#home-nav").addEventListener("click", () => input.focus());
+$("#models-nav").addEventListener("click", () => void openSettings("models"));
+$("#projects-nav").addEventListener("click", async () => {
+  const payload = await apiFetch("/api/projects");
+  const names = (payload.projects || []).map((project) => project.name).slice(0, 4);
+  showToast(names.length ? `Projects: ${names.join(", ")}` : "No projects yet · create one in Settings");
+  await openSettings("projects");
 });
-
-document.querySelectorAll("[data-permission]").forEach((control) => {
-  control.addEventListener("click", () => {
-    permissionLabel.textContent = control.dataset.permission;
-    closeMenus();
-    showToast(`Visual only · ${control.dataset.permission} needs a permission Being`);
-  });
-});
-
-document.querySelector("#sidebar-toggle").addEventListener("click", () => {
-  appShell.classList.toggle("sidebar-collapsed");
-  closeMenus();
-});
-
-document.querySelector("#new-chat").addEventListener("click", () => {
-  closeMenus();
+$("#settings-open").addEventListener("click", () => void openSettings());
+$("#run-settings").addEventListener("click", () => void openSettings("models"));
+$("#temporary-chat").addEventListener("click", async () => {
+  const payload = await apiFetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "Temporary chat", temporary: true }) });
+  currentConversationId = payload.id;
+  renderEvents([]);
+  showToast("Temporary chat · erased on close or shutdown");
   input.focus();
-  showToast("TODO · New session needs a SessionBeing reset contract");
+});
+$("#new-chat").addEventListener("click", async () => {
+  const payload = await apiFetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "New chat", temporary: false }) });
+  currentConversationId = payload.id;
+  renderEvents([]);
+  await loadConversations();
+  input.focus();
 });
 
-function applyTheme(dark) {
-  document.documentElement.classList.toggle("dark", dark);
-  themeToggle.textContent = dark ? "Light Mode" : "Dark Mode";
+themeToggle.addEventListener("click", async () => {
+  const theme = document.documentElement.classList.contains("dark") ? "light" : "dark";
   try {
-    window.localStorage.setItem("lions-heart-theme", dark ? "dark" : "light");
-  } catch (_error) {
-    // Local storage can be blocked; the visible theme still works for this page.
-  }
-}
-
-themeToggle.addEventListener("click", () => {
-  applyTheme(!document.documentElement.classList.contains("dark"));
+    const payload = await apiFetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changes: { theme } }) });
+    settingsSnapshot.values = payload.values;
+    applyTheme(theme);
+  } catch (error) { showToast(error.message); }
   closeMenus();
+});
+
+$("#auth-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("#auth-error").textContent = "";
+  try {
+    const path = authScreen.dataset.mode === "setup" ? "/api/auth/setup" : "/api/auth/login";
+    const payload = await apiFetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: $("#auth-username").value, password: $("#auth-password").value }) });
+    csrfToken = payload.csrf_token;
+    window.sessionStorage.setItem("lion-csrf", csrfToken);
+    await initialize();
+  } catch (error) { $("#auth-error").textContent = error.message; }
+});
+
+$("#logout").addEventListener("click", async () => {
+  await apiFetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  csrfToken = "";
+  window.sessionStorage.removeItem("lion-csrf");
+  window.location.reload();
+});
+
+document.querySelectorAll("[data-settings-tab]").forEach((button) => button.addEventListener("click", () => showSettingsTab(button.dataset.settingsTab)));
+$("#settings-close").addEventListener("click", () => { settingsModal.hidden = true; });
+settingsModal.addEventListener("click", (event) => { if (event.target === settingsModal) settingsModal.hidden = true; });
+
+settingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("#settings-error").textContent = "";
+  const data = new FormData(settingsForm);
+  const changes = {};
+  for (const name of ["default_provider", "default_text_model", "default_image_model", "default_video_model", "default_speech_model", "default_transcription_model", "system_prompt", "theme"]) changes[name] = String(data.get(name) || "");
+  changes.retention_days = Number(data.get("retention_days"));
+  try {
+    await apiFetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changes }) });
+    for (const field of document.querySelectorAll("[data-provider-key]")) {
+      if (!field.value) continue;
+      await apiFetch("/api/provider-key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: field.dataset.providerKey, secret: field.value }) });
+      field.value = "";
+    }
+    await loadSettings();
+    showToast("Settings saved");
+  } catch (error) { $("#settings-error").textContent = error.message; }
+});
+
+$("#discover-models").addEventListener("click", async () => {
+  const provider = settingsForm.elements.namedItem("default_provider").value;
+  const results = $("#model-results");
+  results.textContent = "Discovering…";
+  try {
+    const payload = await apiFetch(`/api/providers/${encodeURIComponent(provider)}/models`);
+    results.replaceChildren();
+    payload.models.slice(0, 100).forEach((model) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = model;
+      button.addEventListener("click", () => { settingsForm.elements.namedItem("default_text_model").value = model; });
+      results.append(button);
+    });
+  } catch (error) { results.textContent = error.message; }
 });
 
 document.addEventListener("click", () => closeMenus());
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeMenus();
+  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); void openSettings(); }
 });
 
-try {
-  applyTheme(window.localStorage.getItem("lions-heart-theme") === "dark");
-} catch (_error) {
-  applyTheme(false);
-}
 resizeInput();
-void loadSession();
+void initialize().catch((error) => showToast(`Lion could not start · ${error.message}`));

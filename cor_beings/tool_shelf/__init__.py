@@ -36,6 +36,50 @@ class ToolShelfBeing(Being):
         """Return tool names in deterministic starter-composition order."""
         return tuple(self._tools)
 
+    @property
+    def schemas(self) -> tuple[dict[str, object], ...]:
+        """Return cached-size provider-neutral schemas in deterministic order."""
+        schemas = {
+            "read": {
+                "name": "read",
+                "description": "Read one UTF-8 text file from the selected project.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+            },
+            "edit": {
+                "name": "edit",
+                "description": "Replace one UTF-8 project file with new content.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                    },
+                    "required": ["path", "content"],
+                    "additionalProperties": False,
+                },
+            },
+            "bash": {
+                "name": "bash",
+                "description": "Run one argv-style project command without a shell.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                        "cwd": {"type": ["string", "null"]},
+                        "timeout": {"type": "number", "exclusiveMinimum": 0},
+                    },
+                    "required": ["command"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+        return tuple(schemas[name] for name in self._tools)
+
     def get(self, name: str) -> ToolBeing:
         try:
             return self._tools[name]
