@@ -1,0 +1,287 @@
+<!--
+TODO: Connect Model hub, Projects, Images, Video, Train, Audio, Recipes, Export, and API to ordinary Beings.
+TODO: Connect Search, attachments, model selection, permission modes, voice, temporary chat, and run settings.
+TODO: Add real chat persistence before Recents becomes authoritative.
+TODO: Add provider-neutral streaming, stop, retry, edit, copy, and message-action contracts.
+TODO: Keep every unsupported reference control visible until its backend Being exists.
+-->
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Lion's Heart</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+  <svg class="svg-defs" aria-hidden="true">
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="7"></circle>
+      <path d="m20 20-4-4"></path>
+    </symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+      <path d="M9 4v16"></path>
+    </symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24">
+      <path d="m14.5 5.5 4 4M4 20l3.5-.7L19 7.8a2.1 2.1 0 0 0-3-3L4.7 16.3 4 20Z"></path>
+    </symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="7" height="7" rx="2"></rect>
+      <rect x="14" y="3" width="7" height="7" rx="2"></rect>
+      <rect x="3" y="14" width="7" height="7" rx="2"></rect>
+      <rect x="14" y="14" width="7" height="7" rx="2"></rect>
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24">
+      <path d="M3 7.5h7l2-2h9v13.5H3Z"></path>
+    </symbol>
+    <symbol id="i-image" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+      <circle cx="9" cy="10" r="2"></circle>
+      <path d="m4 17 5-4 3 3 3-2 5 4"></path>
+    </symbol>
+    <symbol id="i-video" viewBox="0 0 24 24">
+      <rect x="3" y="5" width="13" height="14" rx="2"></rect>
+      <path d="m16 10 5-3v10l-5-3"></path>
+    </symbol>
+    <symbol id="i-flask" viewBox="0 0 24 24">
+      <path d="M9 3h6M10 3v6l-5.5 9.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3"></path>
+      <path d="M7.5 15h9"></path>
+    </symbol>
+    <symbol id="i-more" viewBox="0 0 24 24">
+      <circle cx="5" cy="12" r="1"></circle>
+      <circle cx="12" cy="12" r="1"></circle>
+      <circle cx="19" cy="12" r="1"></circle>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14"></path>
+    </symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24">
+      <path d="m8 10 4 4 4-4"></path>
+    </symbol>
+    <symbol id="i-hand" viewBox="0 0 24 24">
+      <path
+        d="M7 11V7a2 2 0 0 1 4 0v3-5a2 2 0 0 1 4 0v5-3a2 2 0 0 1 4 0v7c0 5-3 7-7 7h-1c-2 0-3.5-1-4.5-2.5L3.4 14a2 2 0 0 1 3.1-2.5L8 13">
+      </path>
+    </symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24">
+      <rect x="8" y="3" width="8" height="13" rx="4"></rect>
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path>
+    </symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24">
+      <path d="M12 19V5m0 0L6.5 10.5M12 5l5.5 5.5"></path>
+    </symbol>
+    <symbol id="i-ghost" viewBox="0 0 24 24">
+      <path d="M5 20V10a7 7 0 0 1 14 0v10l-3-2-4 2-4-2-3 2Z"></path>
+      <circle cx="9" cy="11" r="1"></circle>
+      <circle cx="15" cy="11" r="1"></circle>
+    </symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24">
+      <path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path>
+      <circle cx="16" cy="7" r="2"></circle>
+      <circle cx="8" cy="17" r="2"></circle>
+    </symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24">
+      <path d="m20 12-8 8a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 1 1-2.9-2.8l8-8"></path>
+    </symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"></circle>
+      <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"></path>
+    </symbol>
+    <symbol id="i-code" viewBox="0 0 24 24">
+      <path d="m8 8-4 4 4 4M16 8l4 4-4 4M14 4l-4 16"></path>
+    </symbol>
+    <symbol id="i-book" viewBox="0 0 24 24">
+      <path d="M4 4h6a2 2 0 0 1 2 2v15a3 3 0 0 0-3-3H4ZM20 4h-6a2 2 0 0 0-2 2v15a3 3 0 0 1 3-3h5Z"></path>
+    </symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3"></circle>
+      <path
+        d="M19 13.5v-3l-2-.6-.7-1.7 1-1.8-2.1-2.1-1.8 1-1.7-.7L11 2H8l-.6 2.3-1.7.7-1.8-1-2 2.1 1 1.8-.7 1.7L0 10.5v3l2.2.6.7 1.7-1 1.8 2.1 2.1 1.8-1 1.7.7.6 2.3h3l.6-2.3 1.7-.7 1.8 1 2.1-2.1-1-1.8.7-1.7Z">
+      </path>
+    </symbol>
+  </svg>
+
+  <div class="app-shell" id="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+      <header class="sidebar-brand">
+        <button class="brand-home todo-control" type="button" data-todo="Home route needs a navigation Being"
+          aria-label="Lion's Heart home">
+          <span class="brand-word">Lion's Heart</span>
+        </button>
+        <div class="brand-actions">
+          <button class="icon-btn todo-control" type="button" data-todo="Search needs an indexed history Being"
+            aria-label="Search"><svg>
+              <use href="#i-search"></use>
+            </svg></button>
+          <button class="icon-btn" id="sidebar-toggle" type="button" aria-label="Click to collapse"><svg>
+              <use href="#i-panel"></use>
+            </svg></button>
+        </div>
+      </header>
+
+      <div class="new-chat-wrap"><button class="nav-row" id="new-chat" type="button"><svg>
+            <use href="#i-pencil"></use>
+          </svg><span>New chat</span></button></div>
+
+      <nav class="sidebar-scroll" aria-label="Workspace">
+        <button class="nav-row todo-control" type="button" data-todo="Model hub backend is not connected"><svg>
+            <use href="#i-grid"></use>
+          </svg><span>Model hub</span></button>
+        <button class="nav-row todo-control" type="button" data-todo="Projects backend is not connected"><svg>
+            <use href="#i-folder"></use>
+          </svg><span>Projects</span><span class="row-tail">＋</span></button>
+        <button class="nav-row todo-control" type="button" data-todo="Images backend is not connected"><svg>
+            <use href="#i-image"></use>
+          </svg><span>Images</span></button>
+        <button class="nav-row todo-control" type="button" data-todo="Video backend is not connected"><svg>
+            <use href="#i-video"></use>
+          </svg><span>Video</span></button>
+        <button class="nav-row todo-control" type="button" data-todo="Training backend is not connected"><svg>
+            <use href="#i-flask"></use>
+          </svg><span>Train</span></button>
+        <div class="menu-anchor">
+          <button class="nav-row menu-trigger" type="button" data-menu="sidebar-more" aria-expanded="false"><svg>
+              <use href="#i-more"></use>
+            </svg><span>More</span><svg class="row-chevron">
+              <use href="#i-chevron"></use>
+            </svg></button>
+          <div class="popup sidebar-more" id="sidebar-more" hidden>
+            <button class="todo-control" type="button" data-todo="Audio backend is not connected">Audio</button><button
+              class="todo-control" type="button" data-todo="Recipes backend is not connected">Recipes</button><button
+              class="todo-control" type="button" data-todo="Export backend is not connected">Export</button><button
+              class="todo-control" type="button" data-todo="API settings backend is not connected">API</button>
+            <hr><button class="todo-control" type="button" data-todo="Sidebar customization is not connected">Customize
+              sidebar</button>
+          </div>
+        </div>
+        <section class="recents" id="recents" hidden>
+          <h2>Recents</h2><button class="nav-row current-chat" type="button"><span class="history-title">Lion
+              chat</span><span class="row-tail">•••</span></button>
+        </section>
+        <div class="sidebar-fade" aria-hidden="true"></div>
+      </nav>
+
+      <footer class="profile-wrap menu-anchor">
+        <button class="profile-button menu-trigger" type="button" data-menu="profile-menu" aria-expanded="false"><span
+            class="profile-avatar">L</span><span class="profile-copy"><strong>Local
+              Lion</strong><small>Unsloth</small></span><svg>
+            <use href="#i-more"></use>
+          </svg></button>
+        <div class="popup profile-menu" id="profile-menu" hidden>
+          <button class="todo-control" type="button" data-todo="Settings backend is not connected"><svg>
+              <use href="#i-settings"></use>
+            </svg>Settings</button><button class="todo-control" type="button"
+            data-todo="API backend is not connected"><svg>
+              <use href="#i-globe"></use>
+            </svg>API</button><button id="theme-toggle" type="button">Dark Mode</button><button class="todo-control"
+            type="button" data-todo="Guided Tour is not connected">Guided Tour</button>
+          <hr><button class="todo-control" type="button" data-todo="This local harness has no account session">Log
+            out</button>
+        </div>
+      </footer>
+    </aside>
+
+    <main class="chat-page">
+      <header class="chat-header">
+        <div class="model-anchor menu-anchor">
+          <button class="header-pill menu-trigger" type="button" data-menu="model-menu" aria-expanded="false"><span
+              class="model-dot">L</span><span>Lion Fake</span><svg>
+              <use href="#i-chevron"></use>
+            </svg></button>
+          <div class="popup model-menu" id="model-menu" hidden><strong>Select model</strong><button type="button"
+              class="selected"><span class="model-dot">L</span><span>Lion Fake<small>Built-in deterministic
+                  model</small></span><span>✓</span></button><button class="todo-control" type="button"
+              data-todo="A real provider-neutral model Being does not exist yet">Add a model</button></div>
+        </div>
+        <div class="header-actions"><button class="header-icon todo-control" type="button"
+            data-todo="Context usage needs model token accounting" aria-label="Context usage"><span
+              class="context-ring"></span></button><button class="header-icon todo-control" type="button"
+            data-todo="Temporary chat isolation is not connected" aria-label="Turn on temporary chat"><svg>
+              <use href="#i-ghost"></use>
+            </svg></button><button class="header-icon todo-control" type="button"
+            data-todo="Run settings need a provider Being" aria-label="Open run settings"><svg>
+              <use href="#i-sliders"></use>
+            </svg></button></div>
+      </header>
+
+      <section class="thread" id="thread" aria-label="Conversation">
+        <div class="message-scroll" id="message-scroll">
+          <div class="welcome" id="welcome">
+            <div class="welcome-row">
+              <h1>What’s on your mind today?</h1>
+            </div>
+          </div>
+          <div class="messages" id="messages" aria-live="polite"></div>
+        </div>
+
+        <div class="composer-dock">
+          <form class="composer" id="chat-form">
+            <label class="sr-only" for="message">Message input</label>
+            <textarea class="composer-input" id="message" name="message" rows="1" maxlength="16384"
+              placeholder="Ask anything" aria-label="Message input" required></textarea>
+            <div class="composer-controls">
+              <div class="composer-left">
+                <div class="menu-anchor"><button class="composer-circle menu-trigger" type="button"
+                    data-menu="tools-menu" aria-expanded="false" aria-label="Tools and attachments"><svg>
+                      <use href="#i-plus"></use>
+                    </svg></button>
+                  <div class="popup tools-menu" id="tools-menu" hidden><button class="todo-control" type="button"
+                      data-todo="File upload needs an attachment Being"><svg>
+                        <use href="#i-paperclip"></use>
+                      </svg>Add photos &amp; files</button><button class="todo-control" type="button"
+                      data-todo="Web search needs a search Being"><svg>
+                        <use href="#i-globe"></use>
+                      </svg>Web search</button><button class="todo-control" type="button"
+                      data-todo="Code mode needs a permission-safe execution Being"><svg>
+                        <use href="#i-code"></use>
+                      </svg>Code</button><button class="todo-control" type="button"
+                      data-todo="Chat with Files needs indexing and retrieval Beings"><svg>
+                        <use href="#i-book"></use>
+                      </svg>Chat with Files</button><button class="todo-control" type="button"
+                      data-todo="MCP connections are not connected">MCP</button><button class="todo-control"
+                      type="button" data-todo="Projects are not connected">Projects</button>
+                    <hr><button class="todo-control" type="button"
+                      data-todo="Saved prompts are not connected">More</button>
+                  </div>
+                </div>
+                <div class="menu-anchor"><button class="permission-pill menu-trigger" id="permission-trigger"
+                    type="button" data-menu="permission-menu" aria-expanded="false"
+                    aria-label="Permission level for tool calls"><svg>
+                      <use href="#i-hand"></use>
+                    </svg><span id="permission-label">Ask for approval</span><svg class="caret">
+                      <use href="#i-chevron"></use>
+                    </svg></button>
+                  <div class="popup permission-menu" id="permission-menu" hidden><strong>How should tool calls be
+                      approved?</strong><button type="button" data-permission="Ask for approval"><b>Ask for
+                        approval</b><small>Always ask before tools edit files or use the
+                        internet</small></button><button type="button" data-permission="Approve for me"><b>Approve for
+                        me</b><small>Ask only before high-risk actions</small></button><button type="button"
+                      data-permission="Run automatically"><b>Run automatically</b><small>Run without prompts inside the
+                        sandbox</small></button><button type="button" data-permission="Full access"><b>Full
+                        access</b><small>Unrestricted and without a code sandbox</small></button></div>
+                </div>
+              </div>
+              <div class="composer-right"><button class="composer-circle todo-control" type="button"
+                  data-todo="Voice dictation backend is not connected" aria-label="Dictate"><svg>
+                    <use href="#i-mic"></use>
+                  </svg></button><button class="send-button" id="send-button" type="submit" aria-label="Send message"
+                  disabled><svg>
+                    <use href="#i-arrow"></use>
+                  </svg></button></div>
+            </div>
+          </form>
+          <p class="footer-note">Lion's Heart can make mistakes. Check important info.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+
+</html>

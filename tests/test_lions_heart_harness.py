@@ -5,7 +5,7 @@ import subprocess
 import sys
 from io import StringIO
 from pathlib import Path
-from threading import Event
+from threading import Event, Lock, Thread
 
 import pytest
 
@@ -22,6 +22,7 @@ from cor_beings import (
     ReadBeing,
     SessionBeing,
     ToolShelfBeing,
+    WebUiBeing,
     get_beings,
 )
 from cor_beings.cli.process import run_console, start_console_thread
@@ -51,7 +52,10 @@ class FakeWorld:
 
 class Harness:
     def __init__(self) -> None:
-        self.instances = {being_type: being_type() for being_type in get_beings()}
+        self.instances = {
+            being_type: WebUiBeing(port=0) if being_type is WebUiBeing else being_type()
+            for being_type in get_beings()
+        }
         self.world = FakeWorld(*self.instances.values())
         self.lives: dict[type[Being], Life] = {}
         for being_type in get_beings():
@@ -76,7 +80,7 @@ def harness() -> Harness:
         value.die()
 
 
-def test_composition_is_the_nine_tiny_harness_beings() -> None:
+def test_composition_is_the_ten_tiny_harness_beings() -> None:
     assert get_beings() == (
         SessionBeing,
         LionBeing,
@@ -86,6 +90,7 @@ def test_composition_is_the_nine_tiny_harness_beings() -> None:
         ToolShelfBeing,
         PromptBeing,
         AgentLoopBeing,
+        WebUiBeing,
         CliBeing,
     )
 
@@ -102,6 +107,7 @@ def test_dependency_graph_is_explicit_and_tiny() -> None:
     assert ToolShelfBeing.needs == (ReadBeing, EditBeing, BashBeing)
     assert PromptBeing.needs == (SessionBeing, ToolShelfBeing)
     assert AgentLoopBeing.needs == (SessionBeing, PromptBeing, ToolShelfBeing, LionBeing)
+    assert WebUiBeing.needs == (AgentLoopBeing, SessionBeing)
     assert CliBeing.needs == (AgentLoopBeing,)
 
 
@@ -413,6 +419,61 @@ def test_agent_loop_rejects_bad_step_limit(harness: Harness, max_steps: object) 
 def test_agent_loop_rejects_non_string_message(harness: Harness) -> None:
     with pytest.raises(TypeError, match="string"):
         harness.get(AgentLoopBeing).run_turn(123)  # type: ignore[arg-type]
+
+
+def test_agent_loop_death_forgets_dependencies(harness: Harness) -> None:
+    agent = harness.get(AgentLoopBeing)
+    harness.lives[AgentLoopBeing].die()
+    with pytest.raises(RuntimeError, match="not alive"):
+        agent.run_turn("too late")
+
+
+def test_agent_loop_serializes_concurrent_ui_and_cli_turns(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lion = harness.get(LionBeing)
+    first_entered = Event()
+    release_first = Event()
+    second_entered = Event()
+    state_lock = Lock()
+    call_count = 0
+
+    def respond(_prompt: PromptSnapshot) -> ModelReply:
+        nonlocal call_count
+        with state_lock:
+            index = call_count
+            call_count += 1
+        if index == 0:
+            first_entered.set()
+            assert release_first.wait(timeout=1)
+        else:
+            second_entered.set()
+        return ModelReply(text=f"reply-{index}")
+
+    monkeypatch.setattr(lion, "respond", respond)
+    agent = harness.get(AgentLoopBeing)
+    replies: list[str] = []
+    first = Thread(target=lambda: replies.append(agent.run_turn("first")))
+    second = Thread(target=lambda: replies.append(agent.run_turn("second")))
+
+    first.start()
+    assert first_entered.wait(timeout=1)
+    second.start()
+    assert not second_entered.wait(timeout=0.05)
+    release_first.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert sorted(replies) == ["reply-0", "reply-1"]
+    assert [event.kind for event in harness.get(SessionBeing).events[-4:]] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
 
 
 def test_cli_requires_birth() -> None:

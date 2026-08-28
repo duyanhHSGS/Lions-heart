@@ -11,6 +11,7 @@ from .prompt import PromptBeing
 from .read import ReadBeing
 from .session import SessionBeing
 from .tool_shelf import ToolShelfBeing
+from .web_ui import WebUiBeing
 
 
 # TODO: Grow composition only by adding ordinary product Beings; keep the harness spine replaceable.
@@ -25,6 +26,7 @@ def get_beings() -> tuple[type[Being], ...]:
         ToolShelfBeing,
         PromptBeing,
         AgentLoopBeing,
+        WebUiBeing,
         CliBeing,
     )
 
@@ -39,5 +41,6 @@ __all__ = [
     "ReadBeing",
     "SessionBeing",
     "ToolShelfBeing",
+    "WebUiBeing",
     "get_beings",
 ]

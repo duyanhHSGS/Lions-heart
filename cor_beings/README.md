@@ -155,6 +155,7 @@ The first real Lions-heart harness is intentionally small:
 - `ToolShelfBeing` — directly depends on and indexes the three starter tools by name;
 - `LionBeing` — deterministic fake model using the provider-neutral `ModelReply` / `ToolCall` shapes;
 - `AgentLoopBeing` — drives model → tools → model until a final reply or step limit;
+- `WebUiBeing` — dependency-free loopback HTTP adapter with cached static HTML/CSS/JavaScript, authoritative Session rendering, and lifecycle-owned server/thread cleanup;
 - `CliBeing` — product mouth: keeps `run_once()` for one-shot calls and auto-starts the interactive terminal helper on a real TTY;
 - `ReadBeing` — reads one UTF-8 text file;
 - `EditBeing` — replaces one UTF-8 text file;
@@ -180,5 +181,7 @@ Whenever Lions-heart adds, removes, moves, renames, or materially changes produc
 - TODO: Replace the deterministic fake `LionBeing` with a separate real model-provider Being while keeping the tiny reply contract provider-neutral.
 - TODO: Replace `ToolShelfBeing`'s direct starter-tool dependencies with Life-owned dynamic registration only when dynamic tools are actually needed.
 - TODO: Add optional history-aware CLI line editing without sacrificing cancellable reads or Life-owned thread joining.
+- TODO: Wire the preserved Unsloth Studio shell controls only through future model, tool, permission, search, attachment, project, settings, and persistence Beings.
+- TODO: Add provider-neutral streaming/incremental session delivery without creating a second UI-owned history.
 - TODO: Add automated scaffolding only if repeated Being boilerplate becomes large enough to justify it.
 - TODO: Add large-count scale tests when dynamic tool/event/prompt registries become real product features.

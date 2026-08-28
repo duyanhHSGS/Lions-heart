@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from threading import Lock
+
 from cor_being import Being, Life, World
 from cor_beings.lion import LionBeing
 from cor_beings.prompt import PromptBeing
@@ -20,19 +22,38 @@ class AgentLoopBeing(Being):
         self._prompt: PromptBeing | None = None
         self._tools: ToolShelfBeing | None = None
         self._lion: LionBeing | None = None
+        self._turn_lock = Lock()
 
     def birth(self, world: World, life: Life) -> None:
-        self._session = world.need(SessionBeing)
-        self._prompt = world.need(PromptBeing)
-        self._tools = world.need(ToolShelfBeing)
-        self._lion = world.need(LionBeing)
-        # TODO: Add cancellation/streaming later without teaching this loop concrete model or tool types.
+        session = world.need(SessionBeing)
+        prompt = world.need(PromptBeing)
+        tools = world.need(ToolShelfBeing)
+        lion = world.need(LionBeing)
+        life.on_death(self._forget_dependencies)
+        self._session = session
+        self._prompt = prompt
+        self._tools = tools
+        self._lion = lion
+        # TODO: Add cancellation/streaming later without teaching this loop
+        # concrete model, tool, CLI, or web UI types.
+
+    def _forget_dependencies(self) -> None:
+        with self._turn_lock:
+            self._session = None
+            self._prompt = None
+            self._tools = None
+            self._lion = None
 
     def run_turn(self, message: str, *, max_steps: int = 16) -> str:
         if not isinstance(message, str):
             raise TypeError("message must be a string")
         if not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps <= 0:
             raise ValueError("max_steps must be a positive integer")
+        with self._turn_lock:
+            return self._run_serial_turn(message, max_steps=max_steps)
+
+    def _run_serial_turn(self, message: str, *, max_steps: int) -> str:
+        """Run one turn while preventing CLI/web history interleaving."""
         if self._session is None or self._prompt is None or self._tools is None or self._lion is None:
             raise RuntimeError("agent loop is not alive")
 
