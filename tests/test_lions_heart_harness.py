@@ -4,9 +4,11 @@ import ast
 import subprocess
 import sys
 from pathlib import Path
+from threading import Event
 
 import pytest
 
+import cor_beings.cli as cli_module
 from cor_being import Being, Life
 from cor_beings import (
     AgentLoopBeing,
@@ -20,6 +22,7 @@ from cor_beings import (
     ToolShelfBeing,
     get_beings,
 )
+from cor_beings.cli.process import run_console, start_console_thread
 from cor_beings.lion import ModelReply, ToolCall
 from cor_beings.prompt import PromptSnapshot
 
@@ -421,6 +424,116 @@ def test_cli_runs_one_turn_prints_once_and_returns_reply(harness: Harness) -> No
     assert cli.run_once("hello", write=written.append) == "Lion heard: hello"
     assert written == ["Lion heard: hello"]
     assert [event.kind for event in harness.get(SessionBeing).events] == ["user", "assistant"]
+
+
+def test_console_repeats_you_prompt_until_stdin_closes(harness: Harness) -> None:
+    messages = iter(("hello", "again"))
+    prompts: list[str] = []
+    written: list[str] = []
+
+    def read(prompt: str) -> str:
+        prompts.append(prompt)
+        try:
+            return next(messages)
+        except StopIteration as error:
+            raise EOFError from error
+
+    run_console(harness.get(CliBeing), read=read, write=written.append)
+
+    assert prompts == ["You > ", "You > ", "You > "]
+    assert written == ["Lion heard: hello", "Lion heard: again"]
+    assert [event.kind for event in harness.get(SessionBeing).events] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+
+
+def test_console_does_not_treat_quit_as_a_magic_exit(harness: Harness) -> None:
+    messages = iter(("quit", "still here"))
+    written: list[str] = []
+
+    def read(_prompt: str) -> str:
+        try:
+            return next(messages)
+        except StopIteration as error:
+            raise EOFError from error
+
+    run_console(harness.get(CliBeing), read=read, write=written.append)
+
+    assert written == ["Lion heard: quit", "Lion heard: still here"]
+
+
+def test_console_does_not_swallow_keyboard_interrupt(harness: Harness) -> None:
+    def read(_prompt: str) -> str:
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_console(harness.get(CliBeing), read=read)
+
+    assert harness.get(SessionBeing).events == ()
+
+
+def test_console_drops_input_that_finishes_after_life_stops(harness: Harness) -> None:
+    entered_read = Event()
+    release_read = Event()
+    written: list[str] = []
+    life = Life("cli-console-test")
+
+    def read(_prompt: str) -> str:
+        entered_read.set()
+        assert release_read.wait(timeout=1)
+        return "too late"
+
+    thread = start_console_thread(
+        harness.get(CliBeing),
+        life,
+        read=read,
+        write=written.append,
+    )
+    assert entered_read.wait(timeout=1)
+    life.die()
+    release_read.set()
+    thread.join(timeout=1)
+
+    assert not thread.is_alive()
+    assert written == []
+    assert harness.get(SessionBeing).events == ()
+
+
+def test_cli_birth_autostarts_console_for_real_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = AgentLoopBeing()
+    world = FakeWorld(agent)
+    life = Life("cli")
+    started: list[tuple[CliBeing, Life]] = []
+
+    monkeypatch.setattr(cli_module, "stdin_is_interactive", lambda: True)
+    monkeypatch.setattr(
+        cli_module,
+        "start_console_thread",
+        lambda cli, actual_life: started.append((cli, actual_life)),
+    )
+
+    cli = CliBeing()
+    cli.birth(world, life)
+
+    assert started == [(cli, life)]
+
+
+def test_cli_birth_does_not_autostart_console_without_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = AgentLoopBeing()
+    world = FakeWorld(agent)
+    life = Life("cli")
+
+    monkeypatch.setattr(cli_module, "stdin_is_interactive", lambda: False)
+
+    def fail_start(_cli: CliBeing, _life: Life) -> None:
+        raise AssertionError("console must not start without an interactive terminal")
+
+    monkeypatch.setattr(cli_module, "start_console_thread", fail_start)
+
+    CliBeing().birth(world, life)
 
 
 def test_cor_beings_does_not_import_private_host_package() -> None:

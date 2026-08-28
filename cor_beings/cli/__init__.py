@@ -7,6 +7,8 @@ from collections.abc import Callable
 from cor_being import Being, Life, World
 from cor_beings.agent_loop import AgentLoopBeing
 
+from .process import start_console_thread, stdin_is_interactive
+
 
 class CliBeing(Being):
     """Send one message through the agent and print the final reply."""
@@ -19,7 +21,9 @@ class CliBeing(Being):
 
     def birth(self, world: World, life: Life) -> None:
         self._agent = world.need(AgentLoopBeing)
-        # TODO: Add a real process entrypoint/argv adapter without putting a permanent wait loop in birth().
+        if stdin_is_interactive():
+            start_console_thread(self, life)
+        # TODO: Keep terminal startup thin if future CLI configuration is added.
 
     def run_once(self, message: str, *, write: Callable[[str], object] = print) -> str:
         if self._agent is None:

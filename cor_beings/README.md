@@ -155,7 +155,7 @@ The first real Lions-heart harness is intentionally small:
 - `ToolShelfBeing` — directly depends on and indexes the three starter tools by name;
 - `LionBeing` — deterministic fake model using the provider-neutral `ModelReply` / `ToolCall` shapes;
 - `AgentLoopBeing` — drives model → tools → model until a final reply or step limit;
-- `CliBeing` — one-shot product mouth: one message in, one final reply printed, then return;
+- `CliBeing` — product mouth: keeps `run_once()` for one-shot calls and auto-starts the interactive terminal helper on a real TTY;
 - `ReadBeing` — reads one UTF-8 text file;
 - `EditBeing` — replaces one UTF-8 text file;
 - `BashBeing` — runs one argv-style subprocess command without an intermediate shell.
@@ -179,6 +179,6 @@ Whenever Lions-heart adds, removes, moves, renames, or materially changes produc
 
 - TODO: Replace the deterministic fake `LionBeing` with a separate real model-provider Being while keeping the tiny reply contract provider-neutral.
 - TODO: Replace `ToolShelfBeing`'s direct starter-tool dependencies with Life-owned dynamic registration only when dynamic tools are actually needed.
-- TODO: Add a real process CLI entrypoint around `CliBeing` without putting the application's wait loop inside a Being birth.
+- TODO: Replace the interactive helper's blocking terminal read with a cancellable reader if graceful thread joining becomes necessary before whole-process shutdown.
 - TODO: Add automated scaffolding only if repeated Being boilerplate becomes large enough to justify it.
 - TODO: Add large-count scale tests when dynamic tool/event/prompt registries become real product features.
