@@ -179,6 +179,6 @@ Whenever Lions-heart adds, removes, moves, renames, or materially changes produc
 
 - TODO: Replace the deterministic fake `LionBeing` with a separate real model-provider Being while keeping the tiny reply contract provider-neutral.
 - TODO: Replace `ToolShelfBeing`'s direct starter-tool dependencies with Life-owned dynamic registration only when dynamic tools are actually needed.
-- TODO: Replace the interactive helper's blocking terminal read with a cancellable reader if graceful thread joining becomes necessary before whole-process shutdown.
+- TODO: Add optional history-aware CLI line editing without sacrificing cancellable reads or Life-owned thread joining.
 - TODO: Add automated scaffolding only if repeated Being boilerplate becomes large enough to justify it.
 - TODO: Add large-count scale tests when dynamic tool/event/prompt registries become real product features.

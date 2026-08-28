@@ -20,10 +20,16 @@ class CliBeing(Being):
         self._agent: AgentLoopBeing | None = None
 
     def birth(self, world: World, life: Life) -> None:
-        self._agent = world.need(AgentLoopBeing)
+        agent = world.need(AgentLoopBeing)
+        life.on_death(self._forget_agent)
+        self._agent = agent
         if stdin_is_interactive():
             start_console_thread(self, life)
-        # TODO: Keep terminal startup thin if future CLI configuration is added.
+        # TODO: Keep terminal configuration in the adapter instead of growing
+        # this Being into a second agent controller.
+
+    def _forget_agent(self) -> None:
+        self._agent = None
 
     def run_once(self, message: str, *, write: Callable[[str], object] = print) -> str:
         if self._agent is None:

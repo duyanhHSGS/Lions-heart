@@ -3,12 +3,14 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
+from io import StringIO
 from pathlib import Path
 from threading import Event
 
 import pytest
 
 import cor_beings.cli as cli_module
+import cor_beings.cli.process as cli_process
 from cor_being import Being, Life
 from cor_beings import (
     AgentLoopBeing,
@@ -426,6 +428,29 @@ def test_cli_runs_one_turn_prints_once_and_returns_reply(harness: Harness) -> No
     assert [event.kind for event in harness.get(SessionBeing).events] == ["user", "assistant"]
 
 
+def test_cli_rejects_turns_after_its_life_dies() -> None:
+    cli = CliBeing()
+    life = Life("cli")
+    cli.birth(FakeWorld(AgentLoopBeing()), life)
+
+    life.die()
+
+    with pytest.raises(RuntimeError, match="not alive"):
+        cli.run_once("too late")
+
+
+def test_cli_death_is_idempotent() -> None:
+    cli = CliBeing()
+    life = Life("cli")
+    cli.birth(FakeWorld(AgentLoopBeing()), life)
+
+    life.die()
+    life.die()
+
+    with pytest.raises(RuntimeError, match="not alive"):
+        cli.run_once("still too late")
+
+
 def test_console_repeats_you_prompt_until_stdin_closes(harness: Harness) -> None:
     messages = iter(("hello", "again"))
     prompts: list[str] = []
@@ -477,13 +502,14 @@ def test_console_does_not_swallow_keyboard_interrupt(harness: Harness) -> None:
 
 def test_console_drops_input_that_finishes_after_life_stops(harness: Harness) -> None:
     entered_read = Event()
-    release_read = Event()
+    observed_stop = Event()
     written: list[str] = []
     life = Life("cli-console-test")
 
-    def read(_prompt: str) -> str:
+    def read(_prompt: str, stop: Event) -> str:
         entered_read.set()
-        assert release_read.wait(timeout=1)
+        assert stop.wait(timeout=1)
+        observed_stop.set()
         return "too late"
 
     thread = start_console_thread(
@@ -494,12 +520,110 @@ def test_console_drops_input_that_finishes_after_life_stops(harness: Harness) ->
     )
     assert entered_read.wait(timeout=1)
     life.die()
-    release_read.set()
-    thread.join(timeout=1)
 
+    assert observed_stop.is_set()
     assert not thread.is_alive()
     assert written == []
     assert harness.get(SessionBeing).events == ()
+
+
+def test_console_thread_cleanup_is_idempotent(harness: Harness) -> None:
+    entered_read = Event()
+    life = Life("cli-console-test")
+
+    def read(_prompt: str, stop: Event) -> str:
+        entered_read.set()
+        assert stop.wait(timeout=1)
+        return "ignored"
+
+    thread = start_console_thread(harness.get(CliBeing), life, read=read)
+    assert entered_read.wait(timeout=1)
+
+    life.die()
+    life.die()
+
+    assert not thread.is_alive()
+
+
+def test_console_default_reader_is_cancelled_and_joined(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered_read = Event()
+    observed_stop = Event()
+    life = Life("cli-console-test")
+
+    def cancellable_terminal_read(_prompt: str, stop: Event) -> str:
+        entered_read.set()
+        assert stop.wait(timeout=1)
+        observed_stop.set()
+        return "ignored"
+
+    monkeypatch.setattr(cli_process, "_read_terminal", cancellable_terminal_read)
+    thread = cli_process.start_console_thread(harness.get(CliBeing), life)
+    assert entered_read.wait(timeout=1)
+
+    life.die()
+
+    assert observed_stop.is_set()
+    assert not thread.is_alive()
+
+
+def test_windows_terminal_reader_edits_text_and_ignores_special_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keys = iter(("h", "x", "\b", "i", "\xe0", "K", "\r"))
+
+    class FakeMsvcrt:
+        @staticmethod
+        def kbhit() -> bool:
+            return True
+
+        @staticmethod
+        def getwch() -> str:
+            return next(keys)
+
+    output = StringIO()
+    monkeypatch.setitem(sys.modules, "msvcrt", FakeMsvcrt())
+    monkeypatch.setattr(cli_process.sys, "stdout", output)
+
+    message = cli_process._read_windows_terminal("You > ", Event())
+
+    assert message == "hi"
+    assert output.getvalue() == "You > hx\b \bi\n"
+
+
+def test_selectable_terminal_reader_returns_one_clean_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_stream = StringIO("hello lion\r\n")
+    output = StringIO()
+    monkeypatch.setattr(cli_process.sys, "stdin", input_stream)
+    monkeypatch.setattr(cli_process.sys, "stdout", output)
+    monkeypatch.setattr(
+        cli_process.select,
+        "select",
+        lambda *_args: ((input_stream,), (), ()),
+    )
+
+    message = cli_process._read_selectable_terminal("You > ", Event())
+
+    assert message == "hello lion"
+    assert output.getvalue() == "You > "
+
+
+def test_terminal_reader_cancellation_abandons_pending_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = StringIO()
+    stop = Event()
+    stop.set()
+    monkeypatch.setattr(cli_process.sys, "stdout", output)
+
+    with pytest.raises(cli_process._ConsoleStopped):
+        cli_process._read_selectable_terminal("You > ", stop)
+
+    assert output.getvalue() == "You > \n"
 
 
 def test_cli_birth_autostarts_console_for_real_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -534,6 +658,27 @@ def test_cli_birth_does_not_autostart_console_without_terminal(monkeypatch: pyte
     monkeypatch.setattr(cli_module, "start_console_thread", fail_start)
 
     CliBeing().birth(world, life)
+
+
+def test_cli_failed_console_start_can_roll_back_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    life = Life("cli")
+    cli = CliBeing()
+
+    monkeypatch.setattr(cli_module, "stdin_is_interactive", lambda: True)
+
+    def fail_start(_cli: CliBeing, _life: Life) -> None:
+        raise RuntimeError("terminal exploded")
+
+    monkeypatch.setattr(cli_module, "start_console_thread", fail_start)
+
+    with pytest.raises(RuntimeError, match="terminal exploded"):
+        cli.birth(FakeWorld(AgentLoopBeing()), life)
+
+    life.die()
+    with pytest.raises(RuntimeError, match="not alive"):
+        cli.run_once("zombie message")
 
 
 def test_cor_beings_does_not_import_private_host_package() -> None:
