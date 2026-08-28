@@ -277,6 +277,20 @@ def test_web_ui_css_keeps_reference_geometry_and_theme_tokens(live_ui) -> None:
         assert declaration in stylesheet
 
 
+def test_recent_conversations_have_no_fade_overlay(live_ui) -> None:
+    ui = live_ui[0]
+    html_status, _html_headers, html_body = request(ui, "GET", "/index.html")
+    css_status, _css_headers, css_body = request(ui, "GET", "/styles.css")
+    page = html_body.decode("utf-8")
+    stylesheet = css_body.decode("utf-8")
+
+    assert html_status == 200
+    assert css_status == 200
+    assert 'class="sidebar-fade"' not in page
+    assert ".sidebar-fade" not in stylesheet
+    assert "linear-gradient(to top, var(--sidebar), transparent)" not in stylesheet
+
+
 @pytest.mark.parametrize(
     ("path", "content_type", "needle"),
     [
@@ -394,6 +408,25 @@ def test_mutation_rejects_bad_csrf(live_ui) -> None:
     )
     assert status == 403
     assert json.loads(body)["error"] == "invalid CSRF token"
+
+
+def test_settings_update_serializes_immutable_values_and_persists(live_ui) -> None:
+    ui, _agent, _session, _life = live_ui
+    status, payload = json_request(
+        ui,
+        {"changes": {"theme": "dark", "default_text_model": "lion-test-model"}},
+        path="/api/settings",
+    )
+
+    assert status == 200
+    assert payload["values"]["theme"] == "dark"
+    assert payload["values"]["default_text_model"] == "lion-test-model"
+
+    status, _headers, body = request(ui, "GET", "/api/settings")
+    assert status == 200
+    persisted = json.loads(body)
+    assert persisted["values"]["theme"] == "dark"
+    assert persisted["values"]["default_text_model"] == "lion-test-model"
 
 
 def test_provider_key_api_returns_only_masked_state(live_ui) -> None:

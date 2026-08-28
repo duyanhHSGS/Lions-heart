@@ -118,7 +118,7 @@ def serialize_events(events: tuple[SessionEvent, ...]) -> list[dict[str, object]
 
 def _encode_json(payload: object) -> bytes:
     return json.dumps(
-        payload,
+        _json_safe(payload),
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")

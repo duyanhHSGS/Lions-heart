@@ -187,7 +187,17 @@ class StreamingAgent:
         return ()
 
 
-def _turn_manager(platform: Platform, agent: StreamingAgent) -> tuple[TurnManagerBeing, Life]:
+class FailingAgent:
+    def stream_turn(
+        self, _message: str, *, turn_id: str, cancel: Event, emit, conversation_id: str
+    ) -> None:
+        assert turn_id
+        assert not cancel.is_set()
+        assert conversation_id
+        raise RuntimeError("kaboom")
+
+
+def _turn_manager(platform: Platform, agent: object) -> tuple[TurnManagerBeing, Life]:
     manager = TurnManagerBeing()
     world = World(*platform.beings, agent=agent)
     life = Life("turn_manager")
@@ -220,6 +230,32 @@ def test_turn_events_are_ordered_resumable_and_persisted(platform: Platform) -> 
     assert status == "completed"
     assert persisted == events
     replacement_life.die()
+
+
+def test_failed_turn_emits_normalized_error_and_persists_terminal_status(platform: Platform) -> None:
+    manager, life = _turn_manager(platform, FailingAgent())
+    turn_id = manager.create(platform.session.conversation_id, "explode safely")
+
+    events = _wait_terminal(manager, turn_id)
+    _, status = manager.events_after(turn_id, 0)
+    row = platform.storage.fetchone(
+        "SELECT status, error_kind FROM turns WHERE id=?",
+        (turn_id,),
+    )
+
+    assert status == "failed"
+    assert [event["kind"] for event in events] == [
+        "turn_started",
+        "normalized_error",
+        "turn_failed",
+    ]
+    assert events[1]["data"] == {
+        "error_kind": "RuntimeError",
+        "message": "turn failed; inspect provider and approval settings",
+    }
+    assert row is not None
+    assert dict(row) == {"status": "failed", "error_kind": "RuntimeError"}
+    life.die()
 
 
 def test_one_active_turn_per_conversation_and_cancellation(platform: Platform) -> None:

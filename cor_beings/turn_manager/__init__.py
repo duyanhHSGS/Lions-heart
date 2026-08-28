@@ -120,16 +120,20 @@ class TurnManagerBeing(Being):
                 self._publish(job, ProviderEvent.make("turn_completed", turn_id=job.turn_id))
                 self._set_status(job, "completed")
         except Exception as error:  # noqa: BLE001 - normalize the background boundary.
-            self._publish(
-                job,
-                ProviderEvent.make(
-                    "normalized_error",
-                    kind=type(error).__name__,
-                    message="turn failed; inspect provider and approval settings",
-                ),
-            )
-            self._publish(job, ProviderEvent.make("turn_failed", turn_id=job.turn_id))
-            self._set_status(job, "failed", error_kind=type(error).__name__)
+            error_kind = type(error).__name__
+            try:
+                self._publish(
+                    job,
+                    ProviderEvent.make(
+                        "normalized_error",
+                        error_kind=error_kind,
+                        message="turn failed; inspect provider and approval settings",
+                    ),
+                )
+                self._publish(job, ProviderEvent.make("turn_failed", turn_id=job.turn_id))
+            finally:
+                self._set_status(job, "failed", error_kind=error_kind)
+            # TODO: Add redacted structured logging for failures at this background boundary.
         finally:
             with self._lock:
                 self._active_by_conversation.pop(job.conversation_id, None)

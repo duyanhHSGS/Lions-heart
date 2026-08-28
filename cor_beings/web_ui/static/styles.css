@@ -256,14 +256,7 @@ svg {
   scrollbar-width: thin;
 }
 
-.sidebar-fade {
-  position: sticky;
-  bottom: -42px;
-  height: 42px;
-  margin-top: -42px;
-  pointer-events: none;
-  background: linear-gradient(to top, var(--sidebar), transparent);
-}
+/* TODO: Keep any future sidebar scroll cue outside chat content instead of obscuring it. */
 
 .recents {
   margin-top: 23px;
