@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import json
 import time
+import unicodedata
 from threading import Lock
 from types import MappingProxyType
 from uuid import uuid4
@@ -265,17 +266,65 @@ class SessionBeing(Being):
                     )
         return fork_id
 
+    def edit_user_message(self, conversation_id: str, event_id: int, text: str) -> str:
+        """Create a new branch ending with an edited copy of one user message."""
+        if not isinstance(text, str) or not text.strip() or len(text) > 200_000:
+            raise ValueError("message text is invalid")
+        row = self._require_storage().fetchone(
+            "SELECT kind FROM events WHERE id=? AND conversation_id=?", (event_id, conversation_id),
+        )
+        if row is None: raise LookupError("message not found")
+        if row["kind"] != "user": raise ValueError("only user messages can be edited")
+        branch = self._fork_through(conversation_id, before_event_id=event_id, suffix="edited")
+        self.append_to(branch, "user", text=text.strip(), edited_from_event_id=event_id)
+        return branch
+
+    def retry_from(self, conversation_id: str, event_id: int) -> str:
+        """Fork immediately before an assistant message so a caller can run it again."""
+        row = self._require_storage().fetchone(
+            "SELECT kind FROM events WHERE id=? AND conversation_id=?", (event_id, conversation_id),
+        )
+        if row is None: raise LookupError("message not found")
+        if row["kind"] != "assistant": raise ValueError("retry needs an assistant message")
+        return self._fork_through(conversation_id, before_event_id=event_id, suffix="retry")
+
+    def _fork_through(self, conversation_id: str, *, before_event_id: int, suffix: str) -> str:
+        storage = self._require_storage()
+        source = storage.fetchone("SELECT project_id,title FROM conversations WHERE id=?", (conversation_id,))
+        if source is None: raise LookupError("conversation not found")
+        fork_id = uuid4().hex; title = f"{source['title']} ({suffix})"; now = int(time.time())
+        with storage.transaction() as connection:
+            connection.execute(
+                "INSERT INTO conversations(id,project_id,title,created_at,updated_at) VALUES (?,?,?,?,?)",
+                (fork_id, source["project_id"], title, now, now),
+            )
+            connection.execute(
+                "INSERT INTO events(conversation_id,kind,data_json,created_at) "
+                "SELECT ?,kind,data_json,created_at FROM events WHERE conversation_id=? AND id<? ORDER BY id",
+                (fork_id, conversation_id, before_event_id),
+            )
+            connection.execute("INSERT INTO conversation_search(conversation_id,title,body) VALUES (?,?, '')", (fork_id, title))
+            for row in connection.execute(
+                "SELECT data_json FROM events WHERE conversation_id=? AND kind IN ('user','assistant')", (fork_id,)
+            ).fetchall():
+                data = json.loads(row["data_json"]); text = data.get("text")
+                if isinstance(text, str) and text:
+                    connection.execute("INSERT INTO conversation_search(conversation_id,title,body) VALUES (?,'',?)", (fork_id, text))
+        return fork_id
+
     def search(self, query: str, *, limit: int = 50) -> tuple[dict[str, object], ...]:
         if not isinstance(query, str) or not query.strip():
             return self.list_conversations()[:limit]
         if not isinstance(limit, int) or not 1 <= limit <= 100:
             raise ValueError("limit must be from 1 through 100")
+        terms = [term for term in unicodedata.normalize("NFKC", query).split() if term][:20]
+        expression = " AND ".join('"' + term.replace('"', '""') + '"' for term in terms)
         rows = self._require_storage().fetchall(
             "SELECT c.id, c.project_id, c.title, c.pinned, c.archived, c.updated_at, "
             "MIN(s.rank) AS score FROM conversation_search s "
             "JOIN conversations c ON c.id=s.conversation_id "
             "WHERE conversation_search MATCH ? GROUP BY c.id ORDER BY score LIMIT ?",
-            (query.strip(), limit),
+            (expression, limit),
         )
         return tuple(dict(row) for row in rows)
 

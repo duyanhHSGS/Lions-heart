@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from threading import Condition, Event, RLock, Thread, current_thread
 from uuid import uuid4
@@ -17,6 +18,7 @@ from cor_beings.storage import StorageBeing
 
 
 TERMINAL_STATUSES = frozenset({"completed", "cancelled", "failed"})
+MAX_COMPLETED_JOBS = 128
 
 
 @dataclass(slots=True)
@@ -45,6 +47,7 @@ class TurnManagerBeing(Being):
         self._approval: ApprovalBeing | None = None
         self._jobs: dict[str, _TurnJob] = {}
         self._active_by_conversation: dict[str, str] = {}
+        self._completed: deque[str] = deque()
         self._lock = RLock()
         self._stopping = Event()
 
@@ -60,7 +63,7 @@ class TurnManagerBeing(Being):
             (now,),
         )
         life.on_death(self._stop)
-        # TODO: Add a bounded completed-job memory cache; persisted traces already remain resumable.
+        # TODO: Make the completed-cache bound owner-configurable after operational metrics exist.
 
     def create(self, conversation_id: str, message: str) -> str:
         if not isinstance(message, str) or not message.strip():
@@ -137,6 +140,10 @@ class TurnManagerBeing(Being):
         finally:
             with self._lock:
                 self._active_by_conversation.pop(job.conversation_id, None)
+                self._completed.append(job.turn_id)
+                while len(self._completed) > MAX_COMPLETED_JOBS:
+                    expired = self._completed.popleft()
+                    self._jobs.pop(expired, None)
             with job.condition:
                 job.condition.notify_all()
 
@@ -254,6 +261,7 @@ class TurnManagerBeing(Being):
         with self._lock:
             self._jobs.clear()
             self._active_by_conversation.clear()
+            self._completed.clear()
         self._agent = None
         self._session = None
         self._storage = None
@@ -270,4 +278,4 @@ def _json_safe(value: object) -> object:
     return str(value)
 
 
-__all__ = ["TERMINAL_STATUSES", "TurnManagerBeing"]
+__all__ = ["MAX_COMPLETED_JOBS", "TERMINAL_STATUSES", "TurnManagerBeing"]

@@ -9,16 +9,22 @@ from threading import Thread, current_thread
 
 from cor_being import Being, Life, World
 from cor_beings.agent_loop import AgentLoopBeing
+from cor_beings.activity import ActivityBeing
+from cor_beings.audio import AudioBeing
 from cor_beings.auth import AuthBeing
 from cor_beings.attachments import AttachmentBeing
 from cor_beings.providers import ProviderRegistryBeing
 from cor_beings.mcp import McpBeing
+from cor_beings.images import ImageBeing
+from cor_beings.media_jobs import MediaJobBeing
 from cor_beings.projects import ProjectsBeing
 from cor_beings.session import SessionBeing, SessionEvent
 from cor_beings.settings import SettingsBeing
 from cor_beings.saved_prompts import SavedPromptsBeing
+from cor_beings.recipes import RecipeBeing
 from cor_beings.storage import StorageBeing
 from cor_beings.turn_manager import TurnManagerBeing
+from cor_beings.video import VideoBeing
 
 from .server import WebCallbacks, WebUiHttpServer, create_server
 
@@ -39,6 +45,12 @@ class WebUiBeing(Being):
         AttachmentBeing,
         SavedPromptsBeing,
         McpBeing,
+        MediaJobBeing,
+        ImageBeing,
+        AudioBeing,
+        VideoBeing,
+        RecipeBeing,
+        ActivityBeing,
     )
 
     def __init__(self, *, host: str = "127.0.0.1", port: int = 8765) -> None:
@@ -59,6 +71,12 @@ class WebUiBeing(Being):
         self._attachments: AttachmentBeing | None = None
         self._saved_prompts: SavedPromptsBeing | None = None
         self._mcp: McpBeing | None = None
+        self._media: MediaJobBeing | None = None
+        self._images: ImageBeing | None = None
+        self._audio: AudioBeing | None = None
+        self._video: VideoBeing | None = None
+        self._recipes: RecipeBeing | None = None
+        self._activity: ActivityBeing | None = None
         self._server: WebUiHttpServer | None = None
         self._thread: Thread | None = None
 
@@ -86,6 +104,12 @@ class WebUiBeing(Being):
         attachments = world.need(AttachmentBeing)
         saved_prompts = world.need(SavedPromptsBeing)
         mcp = world.need(McpBeing)
+        media = world.need(MediaJobBeing)
+        images = world.need(ImageBeing)
+        audio = world.need(AudioBeing)
+        video = world.need(VideoBeing)
+        recipes = world.need(RecipeBeing)
+        activity = world.need(ActivityBeing)
         if self._host not in ("127.0.0.1", "localhost", "::1"):
             config = storage.config
             base_url = str(config.get("public_base_url", ""))
@@ -133,6 +157,22 @@ class WebUiBeing(Being):
             update_mcp=lambda connection_id, name, transport, config, enabled, credential, clear: mcp.update(connection_id, name, transport, config, enabled=enabled, credential=credential, clear_credential=clear),
             delete_mcp=mcp.delete,
             refresh_mcp=mcp.test,
+            list_media=lambda kind: media.list(kind=kind),
+            get_media=media.get,
+            download_media=media.download,
+            cancel_media=media.cancel,
+            delete_media=media.delete,
+            generate_image=lambda **values: images.generate(**values),
+            generate_audio=lambda **values: audio.generate(**values),
+            generate_video=lambda **values: video.generate(**values),
+            list_recipes=recipes.list,
+            create_recipe=lambda name, graph, description: recipes.create(name, graph, description=description),
+            run_recipe=lambda recipe_id, inputs: recipes.run(recipe_id, inputs),
+            recipe_history=recipes.history,
+            delete_recipe=recipes.delete,
+            list_activity=activity.list,
+            activity_totals=activity.totals,
+            select_project=projects.select,
             secure_cookie=str(storage.config.get("public_base_url", "")).startswith("https://"),
         )
         server, thread = create_server(
@@ -154,6 +194,12 @@ class WebUiBeing(Being):
         self._attachments = attachments
         self._saved_prompts = saved_prompts
         self._mcp = mcp
+        self._media = media
+        self._images = images
+        self._audio = audio
+        self._video = video
+        self._recipes = recipes
+        self._activity = activity
         self._server = server
         self._thread = thread
         life.on_death(self._stop)
@@ -244,6 +290,12 @@ class WebUiBeing(Being):
         self._attachments = None
         self._saved_prompts = None
         self._mcp = None
+        self._media = None
+        self._images = None
+        self._audio = None
+        self._video = None
+        self._recipes = None
+        self._activity = None
 
         if server is not None:
             if thread is not None and thread.is_alive():

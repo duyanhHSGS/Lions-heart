@@ -13,15 +13,19 @@ import cor_beings.cli as cli_module
 import cor_beings.cli.process as cli_process
 from cor_being import Being, Life
 from cor_beings import (
+    ActivityBeing,
     AgentLoopBeing,
     AnthropicProviderBeing,
     ApprovalBeing,
     AttachmentBeing,
+    AudioBeing,
     AuthBeing,
     BashBeing,
     CliBeing,
     EditBeing,
     LionBeing,
+    ImageBeing,
+    MediaJobBeing,
     GeminiProviderBeing,
     ModelGatewayBeing,
     McpBeing,
@@ -30,12 +34,14 @@ from cor_beings import (
     ProjectsBeing,
     ProviderRegistryBeing,
     ReadBeing,
+    RecipeBeing,
     SavedPromptsBeing,
     SessionBeing,
     SettingsBeing,
     StorageBeing,
     ToolShelfBeing,
     TurnManagerBeing,
+    VideoBeing,
     WebUiBeing,
     WorkspaceBeing,
     get_beings,
@@ -112,6 +118,7 @@ def harness(tmp_path: Path) -> Harness:
 def test_composition_is_the_provider_first_lion_beings() -> None:
     assert get_beings() == (
         StorageBeing,
+        ActivityBeing,
         SettingsBeing,
         AuthBeing,
         SessionBeing,
@@ -129,6 +136,11 @@ def test_composition_is_the_provider_first_lion_beings() -> None:
         BashBeing,
         ToolShelfBeing,
         McpBeing,
+        MediaJobBeing,
+        ImageBeing,
+        AudioBeing,
+        VideoBeing,
+        RecipeBeing,
         ApprovalBeing,
         PromptBeing,
         AgentLoopBeing,
@@ -148,6 +160,12 @@ def test_composition_contains_only_beings_with_unique_lowercase_names() -> None:
 
 def test_dependency_graph_is_explicit_and_tiny() -> None:
     assert SettingsBeing.needs == (StorageBeing,)
+    assert ActivityBeing.needs == (StorageBeing,)
+    assert MediaJobBeing.needs == (StorageBeing,)
+    assert ImageBeing.needs == (MediaJobBeing,)
+    assert AudioBeing.needs == (MediaJobBeing,)
+    assert VideoBeing.needs == (MediaJobBeing,)
+    assert RecipeBeing.needs == (StorageBeing,)
     assert AuthBeing.needs == (StorageBeing,)
     assert SessionBeing.needs == (StorageBeing,)
     assert AttachmentBeing.needs == (StorageBeing,)
@@ -186,6 +204,12 @@ def test_dependency_graph_is_explicit_and_tiny() -> None:
         AttachmentBeing,
         SavedPromptsBeing,
         McpBeing,
+        MediaJobBeing,
+        ImageBeing,
+        AudioBeing,
+        VideoBeing,
+        RecipeBeing,
+        ActivityBeing,
     )
     assert CliBeing.needs == (AgentLoopBeing,)
 

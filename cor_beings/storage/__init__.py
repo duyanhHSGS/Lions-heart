@@ -15,7 +15,7 @@ from typing import Iterator, Sequence
 from cor_being import Being, Life, World
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class StorageBeing(Being):
@@ -327,6 +327,34 @@ class StorageBeing(Being):
                 INSERT INTO saved_prompt_search(prompt_id, name, body)
                     SELECT id, name, body FROM saved_prompts;
                 PRAGMA user_version = 5;
+                COMMIT;
+                """
+            )
+            current = 5
+        if current == 5:
+            connection.executescript(
+                """
+                BEGIN;
+                ALTER TABLE media_jobs ADD COLUMN remote_id TEXT;
+                ALTER TABLE media_jobs ADD COLUMN progress INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE media_jobs ADD COLUMN output_mime TEXT;
+                ALTER TABLE media_jobs ADD COLUMN output_bytes INTEGER;
+                ALTER TABLE media_jobs ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+                CREATE INDEX media_jobs_status ON media_jobs(status, updated_at);
+                ALTER TABLE recipes ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+                ALTER TABLE recipe_runs ADD COLUMN snapshot_json TEXT NOT NULL DEFAULT '{}';
+                CREATE INDEX recipe_runs_history ON recipe_runs(recipe_id, created_at DESC, id);
+                CREATE INDEX activity_created ON activity(created_at DESC, id DESC);
+                CREATE INDEX activity_provider_status ON activity(provider, status, created_at DESC);
+                ALTER TABLE activity ADD COLUMN capability TEXT NOT NULL DEFAULT 'text';
+                ALTER TABLE activity ADD COLUMN cost_microusd INTEGER;
+                ALTER TABLE activity ADD COLUMN pricing_version TEXT;
+                CREATE TABLE app_state (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                PRAGMA user_version = 6;
                 COMMIT;
                 """
             )

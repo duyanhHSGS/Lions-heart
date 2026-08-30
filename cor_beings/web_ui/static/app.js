@@ -207,7 +207,14 @@ async function answerApproval(turnId, approvalId) {
   const approval = (payload.approvals || []).find((item) => item.id === approvalId);
   if (!approval) throw new Error("approval details disappeared");
   const details = `${approval.risk}\n\nTool: ${approval.tool}\nArguments:\n${JSON.stringify(approval.arguments, null, 2)}`;
-  const approved = window.confirm(`${details}\n\nAllow exactly once?`);
+  const drawer = $("#approval-drawer");
+  $("#approval-details").textContent = details;
+  drawer.hidden = false;
+  const approved = await new Promise((resolve) => {
+    $("#approval-allow").onclick = () => resolve(true);
+    $("#approval-reject").onclick = () => resolve(false);
+  });
+  drawer.hidden = true;
   await apiFetch(`/api/approvals/${encodeURIComponent(approvalId)}/decision`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -517,9 +524,79 @@ $("#discover-models").addEventListener("click", async () => {
   } catch (error) { results.textContent = error.message; }
 });
 
+let workbenchKind = "image";
+const workbenchModal = $("#workbench-modal");
+const workbenchList = $("#workbench-list");
+const mediaForm = $("#media-form");
+const recipeForm = $("#recipe-form");
+
+function resourceRow(label, actions = []) {
+  const row = document.createElement("div"); row.className = "resource-row";
+  const text = document.createElement("span"); text.textContent = label; row.append(text, ...actions); return row;
+}
+
+async function loadWorkbench() {
+  workbenchList.textContent = "Loading…";
+  if (workbenchKind === "activity") {
+    const [items, totals] = await Promise.all([apiFetch("/api/activity"), apiFetch("/api/activity/totals")]);
+    const rows = [resourceRow(`${totals.requests} requests · ${totals.input_tokens + totals.output_tokens} tokens`)];
+    for (const item of items.activity || []) rows.push(resourceRow(`${item.provider} / ${item.model} · ${item.capability} · ${item.status}`));
+    workbenchList.replaceChildren(...rows); return;
+  }
+  if (workbenchKind === "recipes") {
+    const payload = await apiFetch("/api/recipes");
+    workbenchList.replaceChildren(...(payload.recipes || []).map((item) => {
+      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete";
+      remove.addEventListener("click", async () => { await apiFetch(`/api/recipes/${encodeURIComponent(item.id)}`, { method: "DELETE" }); await loadWorkbench(); });
+      return resourceRow(`${item.name} · revision ${item.revision}`, [remove]);
+    })); return;
+  }
+  const payload = await apiFetch(`/api/media?kind=${encodeURIComponent(workbenchKind)}`);
+  workbenchList.replaceChildren(...(payload.jobs || []).map((item) => {
+    const actions = [];
+    if (!["completed", "failed", "cancelled"].includes(item.status)) {
+      const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "Cancel";
+      cancel.addEventListener("click", async () => { await apiFetch(`/api/media/${encodeURIComponent(item.id)}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); await loadWorkbench(); }); actions.push(cancel);
+    }
+    if (item.status === "completed") {
+      const download = document.createElement("a"); download.href = `/api/media/${encodeURIComponent(item.id)}/content`; download.textContent = "Download"; actions.push(download);
+    }
+    if (["completed", "failed", "cancelled"].includes(item.status)) {
+      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete";
+      remove.addEventListener("click", async () => { await apiFetch(`/api/media/${encodeURIComponent(item.id)}`, { method: "DELETE" }); await loadWorkbench(); }); actions.push(remove);
+    }
+    return resourceRow(`${item.model} · ${item.status} · ${item.progress}%`, actions);
+  }));
+}
+
+async function openWorkbench(kind) {
+  closeMenus(); workbenchKind = kind; workbenchModal.hidden = false;
+  $("#workbench-title").textContent = kind === "activity" ? "API Activity" : kind[0].toUpperCase() + kind.slice(1);
+  mediaForm.hidden = ["recipes", "activity"].includes(kind); recipeForm.hidden = kind !== "recipes";
+  try { await loadWorkbench(); } catch (error) { workbenchList.textContent = error.message; }
+}
+
+for (const [id, kind] of [["#images-nav", "image"], ["#video-nav", "video"], ["#audio-nav", "audio"], ["#recipes-nav", "recipes"], ["#activity-nav", "activity"]]) {
+  $(id).addEventListener("click", () => void openWorkbench(kind));
+}
+$("#workbench-close").addEventListener("click", () => { workbenchModal.hidden = true; });
+workbenchModal.addEventListener("click", (event) => { if (event.target === workbenchModal) workbenchModal.hidden = true; });
+mediaForm.addEventListener("submit", async (event) => {
+  event.preventDefault(); const data = new FormData(mediaForm);
+  const body = { prompt: data.get("prompt"), provider: data.get("provider"), model: data.get("model") };
+  if (workbenchKind !== "image") body.duration_seconds = Number(data.get("duration_seconds"));
+  try { await apiFetch(`/api/${workbenchKind === "image" ? "images" : workbenchKind}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); await loadWorkbench(); }
+  catch (error) { showToast(error.message); }
+});
+recipeForm.addEventListener("submit", async (event) => {
+  event.preventDefault(); const data = new FormData(recipeForm);
+  try { await apiFetch("/api/recipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: data.get("name"), graph: JSON.parse(String(data.get("graph"))) }) }); await loadWorkbench(); }
+  catch (error) { showToast(error.message); }
+});
+
 document.addEventListener("click", () => closeMenus());
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; savedPromptsModal.hidden = true; }
+  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; savedPromptsModal.hidden = true; workbenchModal.hidden = true; }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); void openSettings(); }
 });
 

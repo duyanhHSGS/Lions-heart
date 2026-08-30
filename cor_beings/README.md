@@ -175,7 +175,7 @@ Whenever Lions-heart adds, removes, moves, renames, or materially changes produc
 
 - TODO: Replace `ToolShelfBeing`'s direct starter-tool dependencies with Life-owned dynamic registration only when dynamic tools are actually needed.
 - TODO: Add optional history-aware CLI line editing without sacrificing cancellable reads or Life-owned thread joining.
-- TODO: Add attachment extraction, MCP connections, cloud-media jobs, recipes, and API-activity screens through their own ordinary Beings.
+- TODO: Connect audited concrete provider media runners and automatic provider-boundary activity recording to the ordinary media, recipe, and activity Beings.
 - TODO: Bound idle per-conversation lock and completed-turn caches after large chat churn.
 - TODO: Keep Web Search disabled until a dedicated security and provider contract is deliberately implemented.
 - TODO: Add math and Mermaid only through audited build-free renderers, and semantic embeddings only as an optional retrieval layer.

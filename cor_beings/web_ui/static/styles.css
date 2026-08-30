@@ -1252,3 +1252,8 @@ kbd {
 .resource-list { display:grid; gap:7px; margin:10px 0; }
 .resource-row { display:flex; align-items:center; gap:8px; justify-content:space-between; border:1px solid var(--border); border-radius:9px; padding:8px; }
 .resource-row > button:first-of-type { flex:1; text-align:left; }
+/* TODO: Add focus trapping after the approval drawer gains multi-step details. */
+.approval-drawer { position:fixed; inset:0 0 0 auto; z-index:80; width:min(460px,100%); background:#0004; }
+.approval-drawer > div { height:100%; box-sizing:border-box; overflow:auto; padding:24px; background:var(--surface,#fff); color:var(--text,#222); box-shadow:-14px 0 50px #0004; }
+.approval-drawer pre { white-space:pre-wrap; overflow-wrap:anywhere; padding:12px; border:1px solid var(--border); border-radius:10px; }
+.approval-drawer button { margin-right:8px; }

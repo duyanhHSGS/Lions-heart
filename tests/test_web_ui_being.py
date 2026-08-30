@@ -18,10 +18,14 @@ import pytest
 import cor_beings.web_ui as web_ui_module
 from cor_being import Life
 from cor_beings.agent_loop import AgentLoopBeing
+from cor_beings.activity import ActivityBeing
+from cor_beings.audio import AudioBeing
 from cor_beings.auth import AuthBeing
 from cor_beings.attachments import AttachmentBeing
 from cor_beings.lion import ToolCall
 from cor_beings.mcp import McpBeing
+from cor_beings.images import ImageBeing
+from cor_beings.media_jobs import MediaJobBeing
 from cor_beings.providers import (
     AnthropicProviderBeing,
     GeminiProviderBeing,
@@ -32,8 +36,10 @@ from cor_beings.projects import ProjectsBeing
 from cor_beings.session import SessionBeing
 from cor_beings.settings import SettingsBeing
 from cor_beings.saved_prompts import SavedPromptsBeing
+from cor_beings.recipes import RecipeBeing
 from cor_beings.storage import StorageBeing
 from cor_beings.turn_manager import TurnManagerBeing
+from cor_beings.video import VideoBeing
 from cor_beings.web_ui import WebUiBeing
 from cor_beings.web_ui.server import MAX_BODY_BYTES, MAX_MESSAGE_CHARS, serialize_events
 
@@ -103,6 +109,11 @@ class RecordingProjects:
         if self.rows.pop(project_id, None) is None:
             raise LookupError
 
+    def select(self, project_id: str):
+        if project_id not in self.rows: raise LookupError
+        if not self.rows[project_id].get("workspace"): raise ValueError("project has no workspace")
+        return self.rows[project_id]
+
 
 class RecordingMcp:
     def __init__(self): self.rows = {}
@@ -162,7 +173,14 @@ def live_ui(tmp_path: Path) -> Iterator[tuple[WebUiBeing, RecordingAgent, Sessio
     anthropic = AnthropicProviderBeing()
     gemini = GeminiProviderBeing()
     providers = ProviderRegistryBeing()
-    support = (storage, settings, auth, session, attachments, saved_prompts, openai, anthropic, gemini, providers)
+    activity = ActivityBeing()
+    media = MediaJobBeing()
+    images = ImageBeing()
+    audio = AudioBeing()
+    video = VideoBeing()
+    recipes = RecipeBeing()
+    support = (storage, settings, auth, session, attachments, saved_prompts, openai, anthropic, gemini, providers,
+               activity, media, images, audio, video, recipes)
     world = UiWorld(agent, *support, turns=turns, projects=projects, mcp=RecordingMcp())
     support_lives: list[Life] = []
     for being in support:

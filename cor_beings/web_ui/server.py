@@ -72,6 +72,22 @@ class WebCallbacks:
     update_mcp: Callable[[str, str, str, Mapping[str, object], bool, str | None, bool], dict[str, object]]
     delete_mcp: Callable[[str], None]
     refresh_mcp: Callable[[str], dict[str, object]]
+    list_media: Callable[[str | None], tuple[dict[str, object], ...]]
+    get_media: Callable[[str], dict[str, object]]
+    download_media: Callable[[str], tuple[dict[str, object], Path]]
+    cancel_media: Callable[[str], dict[str, object]]
+    delete_media: Callable[[str], None]
+    generate_image: Callable[..., dict[str, object]]
+    generate_audio: Callable[..., dict[str, object]]
+    generate_video: Callable[..., dict[str, object]]
+    list_recipes: Callable[[], tuple[dict[str, object], ...]]
+    create_recipe: Callable[[str, Mapping[str, object], str], dict[str, object]]
+    run_recipe: Callable[[str, Mapping[str, object]], dict[str, object]]
+    recipe_history: Callable[[str], tuple[dict[str, object], ...]]
+    delete_recipe: Callable[[str], None]
+    list_activity: Callable[[], tuple[dict[str, object], ...]]
+    activity_totals: Callable[[], dict[str, object]]
+    select_project: Callable[[str], dict[str, object]]
     secure_cookie: bool = False
 
 
@@ -202,6 +218,19 @@ def _handler_type(
                 extra_headers=extra_headers,
             )
 
+        def _send_file(self, status: HTTPStatus, path: Path, content_type: str, *, include_body: bool = True) -> None:
+            size = path.stat().st_size
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(size))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Disposition", f'attachment; filename="{path.name}"')
+            self.end_headers()
+            if include_body:
+                with path.open("rb") as handle:
+                    while chunk := handle.read(64 * 1024): self.wfile.write(chunk)
+
         def _cookies(self) -> dict[str, str]:
             cookies: dict[str, str] = {}
             for part in self.headers.get("Cookie", "").split(";"):
@@ -309,6 +338,22 @@ def _handler_type(
             if path == "/api/mcp/connections" and callbacks is not None:
                 if not self._authorized(): return
                 self._send_json(HTTPStatus.OK, {"connections": callbacks.list_mcp()}, include_body=include_body); return
+            if path == "/api/media" and callbacks is not None:
+                if not self._authorized(): return
+                kind = parse_qs(parsed.query).get("kind", [None])[0]
+                try: rows = callbacks.list_media(kind)
+                except ValueError as error:
+                    self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}, include_body=include_body); return
+                self._send_json(HTTPStatus.OK, {"jobs": rows}, include_body=include_body); return
+            if path == "/api/recipes" and callbacks is not None:
+                if not self._authorized(): return
+                self._send_json(HTTPStatus.OK, {"recipes": callbacks.list_recipes()}, include_body=include_body); return
+            if path == "/api/activity" and callbacks is not None:
+                if not self._authorized(): return
+                self._send_json(HTTPStatus.OK, {"activity": callbacks.list_activity()}, include_body=include_body); return
+            if path == "/api/activity/totals" and callbacks is not None:
+                if not self._authorized(): return
+                self._send_json(HTTPStatus.OK, callbacks.activity_totals(), include_body=include_body); return
             if path == "/api/attachments" and callbacks is not None:
                 if not self._authorized():
                     return
@@ -323,6 +368,26 @@ def _handler_type(
                 self._send_json(HTTPStatus.OK, {"attachments": rows}, include_body=include_body)
                 return
             parts = path.strip("/").split("/")
+            if callbacks is not None and len(parts) == 3 and parts[:2] == ["api", "media"]:
+                if not self._authorized(): return
+                try: item = callbacks.get_media(parts[2])
+                except LookupError:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "media job not found"}, include_body=include_body); return
+                self._send_json(HTTPStatus.OK, {"job": item}, include_body=include_body); return
+            if callbacks is not None and len(parts) == 4 and parts[:2] == ["api", "media"] and parts[3] == "content":
+                if not self._authorized(): return
+                try: item, file_path = callbacks.download_media(parts[2])
+                except LookupError:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "media job not found"}, include_body=include_body); return
+                except RuntimeError:
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "media output unavailable"}, include_body=include_body); return
+                self._send_file(HTTPStatus.OK, file_path, str(item["output_mime"]), include_body=include_body); return
+            if callbacks is not None and len(parts) == 4 and parts[:2] == ["api", "recipes"] and parts[3] == "history":
+                if not self._authorized(): return
+                try: rows = callbacks.recipe_history(parts[2])
+                except LookupError:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "recipe not found"}, include_body=include_body); return
+                self._send_json(HTTPStatus.OK, {"runs": rows}, include_body=include_body); return
             if callbacks is not None and len(parts) == 4 and parts[:2] == ["api", "attachments"] and parts[3] == "content":
                 if not self._authorized():
                     return
@@ -473,7 +538,12 @@ def _handler_type(
             }
             dynamic_prompt = len(parts) == 3 and parts[:2] == ["api", "saved-prompts"]
             dynamic_mcp_test = len(parts) == 4 and parts[:2] == ["api", "mcp"] and parts[3] in ("test", "refresh")
-            if path not in allowed and not dynamic_turn and not dynamic_approval and not dynamic_prompt and not dynamic_mcp_test:
+            dynamic_media_cancel = len(parts) == 4 and parts[:2] == ["api", "media"] and parts[3] == "cancel"
+            dynamic_recipe_run = len(parts) == 4 and parts[:2] == ["api", "recipes"] and parts[3] == "run"
+            dynamic_project_select = len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "select"
+            media_submit = path in ("/api/images", "/api/audio", "/api/video")
+            recipe_create = path == "/api/recipes"
+            if path not in allowed and not dynamic_turn and not dynamic_approval and not dynamic_prompt and not dynamic_mcp_test and not dynamic_media_cancel and not dynamic_recipe_run and not dynamic_project_select and not media_submit and not recipe_create:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "route not found"})
                 return
 
@@ -685,6 +755,50 @@ def _handler_type(
                     except Exception as error:
                         self._send_json(HTTPStatus.BAD_GATEWAY, {"error": "MCP connection test failed", "kind": type(error).__name__}); return
                     self._send_json(HTTPStatus.OK, {"connection": item}); return
+                if media_submit:
+                    common = {"prompt": payload.get("prompt"), "provider": payload.get("provider"), "model": payload.get("model")}
+                    try:
+                        if path == "/api/images":
+                            item = callbacks.generate_image(**common, size=payload.get("size", "1024x1024"), quality=payload.get("quality", "auto"), count=payload.get("count", 1), seed=payload.get("seed"))
+                        elif path == "/api/audio":
+                            item = callbacks.generate_audio(**common, duration_seconds=payload.get("duration_seconds"), format=payload.get("format", "mp3"))
+                        else:
+                            item = callbacks.generate_video(**common, duration_seconds=payload.get("duration_seconds", 5), width=payload.get("width", 1280), height=payload.get("height", 720))
+                    except (TypeError, ValueError) as error:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}); return
+                    except RuntimeError as error:
+                        self._send_json(HTTPStatus.CONFLICT, {"error": str(error)}); return
+                    self._send_json(HTTPStatus.ACCEPTED, {"job": item}); return
+                if dynamic_media_cancel:
+                    try: item = callbacks.cancel_media(parts[2])
+                    except LookupError:
+                        self._send_json(HTTPStatus.NOT_FOUND, {"error": "media job not found"}); return
+                    self._send_json(HTTPStatus.OK, {"job": item}); return
+                if recipe_create:
+                    graph = payload.get("graph")
+                    if not isinstance(graph, dict):
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "graph must be an object"}); return
+                    try: item = callbacks.create_recipe(payload.get("name"), graph, payload.get("description", ""))
+                    except (TypeError, ValueError) as error:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}); return
+                    self._send_json(HTTPStatus.CREATED, {"recipe": item}); return
+                if dynamic_recipe_run:
+                    inputs = payload.get("inputs", {})
+                    if not isinstance(inputs, dict):
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "inputs must be an object"}); return
+                    try: item = callbacks.run_recipe(parts[2], inputs)
+                    except LookupError:
+                        self._send_json(HTTPStatus.NOT_FOUND, {"error": "recipe not found"}); return
+                    except (TypeError, ValueError) as error:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}); return
+                    self._send_json(HTTPStatus.ACCEPTED, {"run": item}); return
+                if dynamic_project_select:
+                    try: item = callbacks.select_project(parts[2])
+                    except LookupError:
+                        self._send_json(HTTPStatus.NOT_FOUND, {"error": "project not found"}); return
+                    except ValueError as error:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}); return
+                    self._send_json(HTTPStatus.OK, {"project": item}); return
                 if dynamic_turn:
                     try:
                         turn_id = callbacks.create_turn(parts[2], message)
@@ -777,7 +891,7 @@ def _handler_type(
         def do_DELETE(self) -> None:
             path = urlsplit(self.path).path
             parts = path.strip("/").split("/")
-            valid_delete = len(parts) == 3 and parts[0] == "api" and parts[1] in ("turns", "projects", "attachments", "saved-prompts")
+            valid_delete = len(parts) == 3 and parts[0] == "api" and parts[1] in ("turns", "projects", "attachments", "saved-prompts", "media", "recipes")
             mcp_delete = len(parts) == 4 and parts[:3] == ["api", "mcp", "connections"]
             if callbacks is None or not (valid_delete or mcp_delete):
                 self._method_not_allowed()
@@ -793,6 +907,10 @@ def _handler_type(
                     callbacks.delete_attachment(parts[2])
                 elif parts[1] == "saved-prompts":
                     callbacks.delete_saved_prompt(parts[2])
+                elif parts[1] == "media":
+                    callbacks.delete_media(parts[2])
+                elif parts[1] == "recipes":
+                    callbacks.delete_recipe(parts[2])
                 else:
                     callbacks.delete_mcp(parts[3])
             except LookupError:
@@ -809,6 +927,10 @@ def _handler_type(
                 self._send_json(HTTPStatus.OK, {"attachment_id": parts[2], "deleted": True})
             elif parts[1] == "saved-prompts":
                 self._send_json(HTTPStatus.OK, {"prompt_id": parts[2], "deleted": True})
+            elif parts[1] == "media":
+                self._send_json(HTTPStatus.OK, {"job_id": parts[2], "deleted": True})
+            elif parts[1] == "recipes":
+                self._send_json(HTTPStatus.OK, {"recipe_id": parts[2], "deleted": True})
             else:
                 self._send_json(HTTPStatus.OK, {"connection_id": parts[3], "deleted": True})
         do_PATCH = _method_not_allowed

@@ -16,7 +16,7 @@ from cor_beings.edit import EditBeing
 from cor_beings.mcp import McpBeing
 from cor_beings.read import ReadBeing
 from cor_beings.saved_prompts import MAX_PROMPT_BODY, MAX_PROMPT_NAME, SavedPromptsBeing
-from cor_beings.storage import StorageBeing
+from cor_beings.storage import SCHEMA_VERSION, StorageBeing
 from cor_beings.tool_shelf import ToolShelfBeing
 
 
@@ -157,7 +157,7 @@ def test_mcp_duplicate_names_and_lifecycle_remove_tools(storage, tmp_path):
     shelf_life.die()
 
 
-def test_schema_version_five_has_prompt_indexes(storage):
-    assert storage.fetchone("PRAGMA user_version")[0] == 5
+def test_current_schema_has_prompt_indexes(storage):
+    assert storage.fetchone("PRAGMA user_version")[0] == SCHEMA_VERSION
     names = {row["name"] for row in storage.fetchall("SELECT name FROM sqlite_master WHERE type IN ('table','index')")}
     assert {"saved_prompt_search", "saved_prompts_scope_name", "saved_prompts_order"} <= names

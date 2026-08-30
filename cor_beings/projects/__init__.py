@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+import json
+import unicodedata
 from uuid import uuid4
 
 from cor_being import Being, Life, World
@@ -24,8 +26,43 @@ class ProjectsBeing(Being):
     def birth(self, world: World, life: Life) -> None:
         self._storage = world.need(StorageBeing)
         self._workspace = world.need(WorkspaceBeing)
+        selected = self._storage.fetchone("SELECT value_json FROM app_state WHERE key='selected_project'")
+        if selected is not None:
+            try:
+                project_id = json.loads(selected["value_json"])
+                if not isinstance(project_id, str):
+                    raise ValueError("selected project ID is invalid")
+                row = self._storage.fetchone("SELECT workspace FROM projects WHERE id=?", (project_id,))
+                if row is None:
+                    self._storage.execute("DELETE FROM app_state WHERE key='selected_project'")
+                elif row["workspace"]:
+                    self._workspace.select(row["workspace"])
+            except (ValueError, OSError, json.JSONDecodeError):
+                self._storage.execute("DELETE FROM app_state WHERE key='selected_project'")
         life.on_death(self._forget)
-        # TODO: Persist the currently selected project separately from chat assignment.
+        # TODO: Block selection changes while a project conversation has an active turn.
+
+    @property
+    def selected_id(self) -> str | None:
+        row = self._require_storage().fetchone("SELECT value_json FROM app_state WHERE key='selected_project'")
+        if row is None: return None
+        value = json.loads(row["value_json"])
+        return value if isinstance(value, str) else None
+
+    def select(self, project_id: str) -> dict[str, object]:
+        storage = self._require_storage()
+        row = storage.fetchone("SELECT id,name,workspace,created_at,updated_at FROM projects WHERE id=?", (project_id,))
+        if row is None: raise LookupError("project not found")
+        if not row["workspace"]: raise ValueError("project has no workspace")
+        workspace = self._workspace
+        if workspace is None: raise RuntimeError("projects is not alive")
+        workspace.select(str(row["workspace"]))
+        storage.execute(
+            "INSERT INTO app_state(key,value_json,updated_at) VALUES ('selected_project',?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",
+            (json.dumps(project_id), int(time.time())),
+        )
+        return dict(row)
 
     def create(self, name: str, *, workspace: str | None = None) -> str:
         clean = _name(name)
@@ -79,17 +116,22 @@ class ProjectsBeing(Being):
             )
             if cursor.rowcount != 1:
                 raise LookupError("project not found")
+            selected = connection.execute("SELECT value_json FROM app_state WHERE key='selected_project'").fetchone()
+            if selected is not None and json.loads(selected["value_json"]) == project_id:
+                connection.execute("DELETE FROM app_state WHERE key='selected_project'")
 
     def search(self, query: str, *, limit: int = 30) -> tuple[dict[str, object], ...]:
         if not isinstance(query, str) or not query.strip():
             return self.list()[:limit]
         if not isinstance(limit, int) or not 1 <= limit <= 100:
             raise ValueError("limit must be from 1 through 100")
+        terms = [term for term in unicodedata.normalize("NFKC", query).split() if term][:20]
+        expression = " AND ".join('"' + term.replace('"', '""') + '"' for term in terms)
         rows = self._require_storage().fetchall(
             "SELECT p.id, p.name, p.workspace, p.updated_at FROM project_search s "
             "JOIN projects p ON p.id=s.project_id WHERE project_search MATCH ? "
             "ORDER BY rank LIMIT ?",
-            (query.strip(), limit),
+            (expression, limit),
         )
         return tuple(dict(row) for row in rows)
 
