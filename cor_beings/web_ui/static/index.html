@@ -223,25 +223,24 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
                     data-menu="tools-menu" aria-expanded="false" aria-label="Tools and attachments"><svg>
                       <use href="#i-plus"></use>
                     </svg></button>
-                  <div class="popup tools-menu" id="tools-menu" hidden><button class="todo-control" type="button"
-                      data-todo="File upload needs an attachment Being"><svg>
+                  <div class="popup tools-menu" id="tools-menu" hidden><button id="add-files" type="button"><svg>
                         <use href="#i-paperclip"></use>
-                      </svg>Add photos &amp; files</button><button class="todo-control" type="button"
+                      </svg>Add text files</button><button class="todo-control" type="button"
                       data-todo="Web search needs a search Being"><svg>
                         <use href="#i-globe"></use>
                       </svg>Web search</button><button class="todo-control" type="button"
                       data-todo="Code mode needs a permission-safe execution Being"><svg>
                         <use href="#i-code"></use>
-                      </svg>Code</button><button class="todo-control" type="button"
-                      data-todo="Chat with Files needs indexing and retrieval Beings"><svg>
+                      </svg>Code</button><button id="chat-with-files" type="button"><svg>
                         <use href="#i-book"></use>
                       </svg>Chat with Files</button><button class="todo-control" type="button"
-                      data-todo="MCP connections are not connected">MCP</button><button class="todo-control"
+                      id="mcp-open">MCP</button><button class="todo-control"
                       type="button" data-todo="Projects are not connected">Projects</button>
-                    <hr><button class="todo-control" type="button"
-                      data-todo="Saved prompts are not connected">More</button>
+                    <hr><button id="saved-prompts-open" type="button">Saved prompts</button>
                   </div>
                 </div>
+                <input id="file-picker" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" multiple hidden>
+                <div id="attachment-chips" class="attachment-chips" aria-live="polite"></div>
                 <div class="menu-anchor"><button class="permission-pill menu-trigger" id="permission-trigger"
                     type="button" data-menu="permission-menu" aria-expanded="false"
                     aria-label="Permission level for tool calls"><svg>
@@ -302,7 +301,7 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
           <section class="settings-panel" data-settings-panel="models" hidden><h2>Models</h2><label>Text model<input name="default_text_model" placeholder="Enter a remote model ID"></label><button id="discover-models" type="button">Discover models</button><div id="model-results"></div></section>
           <section class="settings-panel" data-settings-panel="appearance" hidden><h2>Appearance</h2><label>Theme<select name="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section>
           <section class="settings-panel" data-settings-panel="chat" hidden><h2>Chat</h2><label>System instructions<textarea name="system_prompt" rows="8"></textarea></label></section>
-          <section class="settings-panel" data-settings-panel="tools" hidden><h2>Tools &amp; MCP</h2><p>Every tool call requires explicit approval. Automatic and full-access modes are unavailable.</p></section>
+          <section class="settings-panel" data-settings-panel="tools" hidden><h2>Tools &amp; MCP</h2><p>Every tool call requires explicit approval. Automatic and full-access modes are unavailable.</p><div class="mcp-editor"><input id="mcp-name" placeholder="Connection name"><select id="mcp-transport"><option value="http">HTTPS</option><option value="stdio">stdio argv</option></select><input id="mcp-target" placeholder="https://server.example/mcp"><input id="mcp-credential" type="password" autocomplete="off" placeholder="Optional credential"><button id="mcp-add" type="button">Add connection</button></div><div id="mcp-list" class="resource-list"></div></section>
           <section class="settings-panel" data-settings-panel="projects" hidden><h2>Projects &amp; Data</h2><p>Durable projects and conversation history use Lion’s indexed storage.</p></section>
           <section class="settings-panel" data-settings-panel="media" hidden><h2>Voice &amp; Media</h2><label>Image model<input name="default_image_model"></label><label>Video model<input name="default_video_model"></label><label>Speech model<input name="default_speech_model"></label><label>Transcription model<input name="default_transcription_model"></label></section>
           <section class="settings-panel" data-settings-panel="shortcuts" hidden><h2>Shortcuts</h2><p><kbd>Ctrl</kbd> + <kbd>K</kbd> opens Settings. <kbd>Esc</kbd> closes dialogs.</p></section>
@@ -314,6 +313,7 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
       </div>
     </div>
   </section>
+  <section class="modal-backdrop" id="saved-prompts-modal" hidden aria-labelledby="saved-prompts-title"><div class="small-dialog" role="dialog" aria-modal="true"><header><h1 id="saved-prompts-title">Saved prompts</h1><button id="saved-prompts-close" type="button" aria-label="Close">×</button></header><input id="saved-prompts-search" placeholder="Search prompts"><div id="saved-prompts-list" class="resource-list"></div><form id="saved-prompt-form"><input name="name" maxlength="120" placeholder="Prompt name" required><textarea name="body" maxlength="32768" placeholder="Prompt text" required></textarea><button type="submit">Save prompt</button></form></div></section>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/app.js" type="module"></script>

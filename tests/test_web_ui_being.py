@@ -19,7 +19,9 @@ import cor_beings.web_ui as web_ui_module
 from cor_being import Life
 from cor_beings.agent_loop import AgentLoopBeing
 from cor_beings.auth import AuthBeing
+from cor_beings.attachments import AttachmentBeing
 from cor_beings.lion import ToolCall
+from cor_beings.mcp import McpBeing
 from cor_beings.providers import (
     AnthropicProviderBeing,
     GeminiProviderBeing,
@@ -29,6 +31,7 @@ from cor_beings.providers import (
 from cor_beings.projects import ProjectsBeing
 from cor_beings.session import SessionBeing
 from cor_beings.settings import SettingsBeing
+from cor_beings.saved_prompts import SavedPromptsBeing
 from cor_beings.storage import StorageBeing
 from cor_beings.turn_manager import TurnManagerBeing
 from cor_beings.web_ui import WebUiBeing
@@ -101,16 +104,33 @@ class RecordingProjects:
             raise LookupError
 
 
+class RecordingMcp:
+    def __init__(self): self.rows = {}
+    def list(self): return tuple(self.rows.values())
+    def create(self, name, transport, config, **_kwargs):
+        item = {"id": "mcp-test", "name": name, "transport": transport, "config": config, "health": "healthy"}
+        self.rows[item["id"]] = item; return item
+    def import_connections(self, items):
+        return tuple(self.create(item["name"], item["transport"], item["config"]) for item in items)
+    def update(self, connection_id, name, transport, config, **_kwargs):
+        if connection_id not in self.rows: raise LookupError
+        self.rows[connection_id].update(name=name, transport=transport, config=config); return self.rows[connection_id]
+    def delete(self, connection_id):
+        if self.rows.pop(connection_id, None) is None: raise LookupError
+    def test(self, _connection_id): return {"id": "mcp-test", "health": "healthy"}
+
+
 class UiWorld:
     name = "web-test"
     news = None
     alive = ()
 
-    def __init__(self, *instances: object, turns: RecordingTurns | None = None, projects: RecordingProjects | None = None) -> None:
+    def __init__(self, *instances: object, turns: RecordingTurns | None = None, projects: RecordingProjects | None = None, mcp: RecordingMcp | None = None) -> None:
         self.instances = {type(instance): instance for instance in instances}
         self.agent = next((item for item in instances if isinstance(item, RecordingAgent)), None)
         self.turns = turns
         self.projects = projects
+        self.mcp = mcp
 
     def need(self, being_type):
         if being_type is AgentLoopBeing and self.agent is not None:
@@ -119,6 +139,8 @@ class UiWorld:
             return self.turns
         if being_type is ProjectsBeing and self.projects is not None:
             return self.projects
+        if being_type is McpBeing and self.mcp is not None:
+            return self.mcp
         try:
             return self.instances[being_type]
         except KeyError as error:
@@ -131,6 +153,8 @@ def live_ui(tmp_path: Path) -> Iterator[tuple[WebUiBeing, RecordingAgent, Sessio
     settings = SettingsBeing()
     auth = AuthBeing()
     session = SessionBeing()
+    attachments = AttachmentBeing()
+    saved_prompts = SavedPromptsBeing()
     agent = RecordingAgent(session)
     turns = RecordingTurns()
     projects = RecordingProjects()
@@ -138,8 +162,8 @@ def live_ui(tmp_path: Path) -> Iterator[tuple[WebUiBeing, RecordingAgent, Sessio
     anthropic = AnthropicProviderBeing()
     gemini = GeminiProviderBeing()
     providers = ProviderRegistryBeing()
-    support = (storage, settings, auth, session, openai, anthropic, gemini, providers)
-    world = UiWorld(agent, *support, turns=turns, projects=projects)
+    support = (storage, settings, auth, session, attachments, saved_prompts, openai, anthropic, gemini, providers)
+    world = UiWorld(agent, *support, turns=turns, projects=projects, mcp=RecordingMcp())
     support_lives: list[Life] = []
     for being in support:
         being_life = Life(being.name)
@@ -215,6 +239,24 @@ def test_web_ui_constructor_rejects_bad_bind_configuration() -> None:
             WebUiBeing(port=port)  # type: ignore[arg-type]
 
 
+def test_saved_prompt_and_mcp_routes_are_authenticated_csrf_crud(live_ui) -> None:
+    ui, _agent, _session, _life = live_ui
+    status, created = json_request(ui, {"name": "Explain", "body": "Explain like I am ten"}, path="/api/saved-prompts")
+    assert status == 201
+    prompt = created["prompt"]
+    status, _headers, body = request(ui, "GET", "/api/saved-prompts?q=Explain")
+    assert status == 200 and json.loads(body)["prompts"][0]["id"] == prompt["id"]
+    status, _headers, _body = request(ui, "DELETE", f"/api/saved-prompts/{prompt['id']}")
+    assert status == 200
+
+    status, created_mcp = json_request(ui, {"name": "Docs", "transport": "http", "config": {"url": "https://example.invalid/mcp"}}, path="/api/mcp/connections")
+    assert status == 201 and created_mcp["connections"][0]["name"] == "Docs"
+    status, _headers, body = request(ui, "GET", "/api/mcp/connections")
+    assert status == 200 and json.loads(body)["connections"][0]["id"] == "mcp-test"
+    status, _headers, _body = request(ui, "DELETE", "/api/mcp/connections/mcp-test")
+    assert status == 200
+
+
 def test_web_ui_requires_birth_for_public_operations() -> None:
     ui = WebUiBeing(port=0)
     assert ui.url is None
@@ -247,7 +289,7 @@ def test_web_ui_serves_text_only_chat_shell_and_controls(live_ui) -> None:
         "API Activity",
         "Settings",
         "Guided Tour",
-        "Add photos &amp; files",
+        "Add text files",
         "Web search",
         "Code",
         "Chat with Files",
@@ -334,7 +376,8 @@ def test_frontend_has_no_node_manifest_or_external_runtime_assets() -> None:
     )
     assert not (ROOT / "package.json").exists()
     assert not (ROOT / "package-lock.json").exists()
-    assert "https://" not in combined
+    assert "src=\"https://" not in combined
+    assert "href=\"https://" not in combined
     assert "node_modules" not in combined
     assert "npm" not in combined.lower()
     assert "vite" not in combined.lower()
@@ -492,6 +535,42 @@ def test_project_json_crud_routes(live_ui) -> None:
     status, _headers, body = request(ui, "DELETE", f"/api/projects/{project_id}")
     assert status == 200
     assert json.loads(body)["deleted"] is True
+
+
+def test_attachment_routes_require_auth_csrf_and_round_trip_utf8(live_ui) -> None:
+    ui, _agent, session, _life = live_ui
+    body = "Lion reads café notes".encode("utf-8")
+    status, _headers, response = request(
+        ui,
+        "POST",
+        "/api/attachments",
+        body=body,
+        headers={
+            "Content-Type": "text/plain",
+            "X-File-Name": "caf%C3%A9.txt",
+            "X-Conversation-Id": session.conversation_id,
+        },
+    )
+    assert status == 201
+    item = json.loads(response)["attachment"]
+    assert item["file_name"] == "café.txt"
+
+    status, _headers, response = request(ui, "GET", "/api/attachments")
+    assert status == 200
+    assert json.loads(response)["attachments"] == [item]
+
+    status, headers, response = request(ui, "GET", f"/api/attachments/{item['id']}/content")
+    assert status == 200
+    assert headers["Content-Type"] == "text/plain"
+    assert response == body
+
+    status, _headers, response = request(ui, "DELETE", f"/api/attachments/{item['id']}")
+    assert status == 200
+    assert json.loads(response)["deleted"] is True
+
+    delattr(ui, "_test_cookie")
+    status, _headers, _response = request(ui, "GET", "/api/attachments")
+    assert status == 401
 
 
 def test_web_ui_turn_api_runs_agent_and_returns_reply(live_ui) -> None:

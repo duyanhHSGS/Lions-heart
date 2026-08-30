@@ -23,6 +23,9 @@ const permissionLabel = $("#permission-label");
 const authScreen = $("#auth-screen");
 const settingsModal = $("#settings-modal");
 const settingsForm = $("#settings-form");
+const filePicker = $("#file-picker");
+const attachmentChips = $("#attachment-chips");
+const savedPromptsModal = $("#saved-prompts-modal");
 
 let toastTimer = null;
 let busy = false;
@@ -97,7 +100,70 @@ async function loadSession() {
     const payload = await apiFetch("/api/session");
     currentConversationId = typeof payload.conversation_id === "string" ? payload.conversation_id : "";
     renderEvents(Array.isArray(payload.events) ? payload.events : []);
+    await loadAttachments();
   } catch (error) { if (error.status !== 401) showToast(`Session could not load · ${error.message}`); }
+}
+
+async function loadAttachments() {
+  if (!currentConversationId || !attachmentChips) return;
+  const payload = await apiFetch(`/api/attachments?conversation_id=${encodeURIComponent(currentConversationId)}`);
+  const rows = Array.isArray(payload.attachments) ? payload.attachments : [];
+  attachmentChips.replaceChildren(...rows.map((item) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "attachment-chip";
+    chip.textContent = `📎 ${item.file_name}`;
+    chip.title = "Remove attachment";
+    chip.addEventListener("click", async () => {
+      await apiFetch(`/api/attachments/${encodeURIComponent(item.id)}`, { method: "DELETE" });
+      await loadAttachments();
+    });
+    return chip;
+  }));
+}
+
+async function uploadFiles(files) {
+  for (const file of files) {
+    const mime = file.type || (file.name.toLowerCase().endsWith(".md") ? "text/markdown" : "text/plain");
+    await apiFetch("/api/attachments", {
+      method: "POST",
+      headers: {
+        "Content-Type": mime,
+        "X-File-Name": encodeURIComponent(file.name),
+        "X-Conversation-Id": currentConversationId,
+      },
+      body: file,
+    });
+  }
+  await loadAttachments();
+  showToast("Files indexed · Lion can sniff the words now 🦁");
+}
+
+async function loadSavedPrompts(query = "") {
+  const payload = await apiFetch(`/api/saved-prompts?q=${encodeURIComponent(query)}`);
+  const list = $("#saved-prompts-list");
+  list.replaceChildren(...(payload.prompts || []).map((prompt) => {
+    const row = document.createElement("div"); row.className = "resource-row";
+    const insert = document.createElement("button"); insert.type = "button"; insert.textContent = prompt.name;
+    insert.title = "Insert into composer without sending";
+    insert.addEventListener("click", () => { input.value = `${input.value}${input.value ? "\n" : ""}${prompt.body}`; resizeInput(); input.focus(); savedPromptsModal.hidden = true; });
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete";
+    remove.addEventListener("click", async () => { await apiFetch(`/api/saved-prompts/${encodeURIComponent(prompt.id)}`, { method: "DELETE" }); await loadSavedPrompts($("#saved-prompts-search").value); });
+    row.append(insert, remove); return row;
+  }));
+}
+
+async function loadMcpConnections() {
+  const payload = await apiFetch("/api/mcp/connections");
+  $("#mcp-list").replaceChildren(...(payload.connections || []).map((connection) => {
+    const row = document.createElement("div"); row.className = "resource-row";
+    const label = document.createElement("span"); label.textContent = `${connection.name} · ${connection.health}`;
+    const refresh = document.createElement("button"); refresh.type = "button"; refresh.textContent = "Refresh";
+    refresh.addEventListener("click", async () => { await apiFetch(`/api/mcp/${encodeURIComponent(connection.id)}/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); await loadMcpConnections(); });
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Delete";
+    remove.addEventListener("click", async () => { await apiFetch(`/api/mcp/connections/${encodeURIComponent(connection.id)}`, { method: "DELETE" }); await loadMcpConnections(); });
+    row.append(label, refresh, remove); return row;
+  }));
 }
 
 async function loadConversations() {
@@ -342,6 +408,21 @@ $("#projects-nav").addEventListener("click", async () => {
   showToast(names.length ? `Projects: ${names.join(", ")}` : "No projects yet · create one in Settings");
   await openSettings("projects");
 });
+$("#saved-prompts-open").addEventListener("click", async () => { closeMenus(); savedPromptsModal.hidden = false; await loadSavedPrompts(); $("#saved-prompts-search").focus(); });
+$("#saved-prompts-close").addEventListener("click", () => { savedPromptsModal.hidden = true; });
+$("#saved-prompts-search").addEventListener("input", (event) => void loadSavedPrompts(event.target.value));
+$("#saved-prompt-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); const data = new FormData(event.currentTarget);
+  await apiFetch("/api/saved-prompts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: data.get("name"), body: data.get("body") }) });
+  event.currentTarget.reset(); await loadSavedPrompts();
+});
+$("#mcp-open").addEventListener("click", async () => { closeMenus(); await openSettings("tools"); await loadMcpConnections(); });
+$("#mcp-add").addEventListener("click", async () => {
+  const transport = $("#mcp-transport").value; const target = $("#mcp-target").value.trim();
+  const config = transport === "http" ? { url: target } : { argv: target.split(/\s+/).filter(Boolean) };
+  await apiFetch("/api/mcp/connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("#mcp-name").value, transport, config, credential: $("#mcp-credential").value || null }) });
+  $("#mcp-credential").value = ""; await loadMcpConnections();
+});
 $("#settings-open").addEventListener("click", () => void openSettings());
 $("#run-settings").addEventListener("click", () => void openSettings("models"));
 $("#temporary-chat").addEventListener("click", async () => {
@@ -357,6 +438,14 @@ $("#new-chat").addEventListener("click", async () => {
   renderEvents([]);
   await loadConversations();
   input.focus();
+});
+
+$("#add-files").addEventListener("click", () => { closeMenus(); filePicker.click(); });
+$("#chat-with-files").addEventListener("click", () => { closeMenus(); filePicker.click(); });
+filePicker.addEventListener("change", async () => {
+  try { await uploadFiles(Array.from(filePicker.files || [])); }
+  catch (error) { showToast(error.message); }
+  finally { filePicker.value = ""; }
 });
 
 themeToggle.addEventListener("click", async () => {
@@ -430,7 +519,7 @@ $("#discover-models").addEventListener("click", async () => {
 
 document.addEventListener("click", () => closeMenus());
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; }
+  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; savedPromptsModal.hidden = true; }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); void openSettings(); }
 });
 

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from cor_being import Being, Life, World
 from cor_beings.approval import ApprovalBeing
+from cor_beings.attachments import AttachmentBeing
 from cor_beings.lion import ModelReply, ToolCall
 from cor_beings.model_gateway import ModelGatewayBeing
 from cor_beings.prompt import PromptBeing
@@ -36,6 +37,7 @@ class AgentLoopBeing(Being):
         self._tools: ToolShelfBeing | None = None
         self._gateway: ModelGatewayBeing | None = None
         self._approval: ApprovalBeing | None = None
+        self._attachments: AttachmentBeing | None = None
         self._locks_guard = Lock()
         self._conversation_locks: dict[str, Lock] = {}
 
@@ -45,12 +47,17 @@ class AgentLoopBeing(Being):
         tools = world.need(ToolShelfBeing)
         gateway = world.need(ModelGatewayBeing)
         approval = world.need(ApprovalBeing)
+        try:
+            attachments = world.need(AttachmentBeing)
+        except LookupError:
+            attachments = None
         life.on_death(self._forget_dependencies)
         self._session = session
         self._prompt = prompt
         self._tools = tools
         self._gateway = gateway
         self._approval = approval
+        self._attachments = attachments
         # TODO: Evict idle per-conversation locks after very large chat churn.
 
     def _forget_dependencies(self) -> None:
@@ -59,6 +66,7 @@ class AgentLoopBeing(Being):
         self._tools = None
         self._gateway = None
         self._approval = None
+        self._attachments = None
         with self._locks_guard:
             self._conversation_locks.clear()
 
@@ -101,7 +109,16 @@ class AgentLoopBeing(Being):
         ):
             raise RuntimeError("agent loop is not alive")
 
-        self._session.append_to(conversation_id, "user", text=message)
+        attachment_ids: tuple[str, ...] = ()
+        if self._attachments is not None:
+            attachment_ids = tuple(
+                str(item["id"])
+                for item in self._attachments.list(conversation_id=conversation_id)
+            )
+        event_data: dict[str, object] = {"text": message}
+        if attachment_ids:
+            event_data["attachment_ids"] = attachment_ids
+        self._session.append_to(conversation_id, "user", **event_data)
 
         for _ in range(max_steps):
             if cancel.is_set():
@@ -244,6 +261,23 @@ class AgentLoopBeing(Being):
                     }
                 )
         request = self._gateway.default_request(tuple(messages))
+        if self._attachments is not None:
+            query = next(
+                (str(event.data.get("text", "")) for event in reversed(self._session.events_for(conversation_id))
+                 if event.kind == "user"),
+                "",
+            )
+            snippets = self._attachments.context_for(query, conversation_id=conversation_id)
+            if snippets:
+                context = "\n\n".join(
+                    f"Attachment {item['name']} ({item['id']}):\n{item['text']}" for item in snippets
+                )
+                request = replace(
+                    request,
+                    system=f"{request.system}\n\nUse these retrieved attachment excerpts when relevant:\n{context}".strip(),
+                    attachments=tuple({"id": item["id"], "name": item["name"], "kind": "retrieved_text"}
+                                      for item in snippets),
+                )
         if self._tools is not None:
             request = replace(request, tools=self._tools.schemas)
         text_parts: list[str] = []

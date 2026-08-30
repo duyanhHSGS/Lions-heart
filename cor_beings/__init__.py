@@ -4,12 +4,14 @@ from cor_being import Being
 
 from .agent_loop import AgentLoopBeing
 from .approval import ApprovalBeing
+from .attachments import AttachmentBeing
 from .auth import AuthBeing
 from .bash import BashBeing
 from .cli import CliBeing
 from .edit import EditBeing
 from .lion import LionBeing
 from .model_gateway import ModelGatewayBeing
+from .mcp import McpBeing
 from .prompt import PromptBeing
 from .projects import ProjectsBeing
 from .providers import (
@@ -19,6 +21,7 @@ from .providers import (
     ProviderRegistryBeing,
 )
 from .read import ReadBeing
+from .saved_prompts import SavedPromptsBeing
 from .session import SessionBeing
 from .settings import SettingsBeing
 from .storage import StorageBeing
@@ -36,6 +39,7 @@ def get_beings() -> tuple[type[Being], ...]:
         SettingsBeing,
         AuthBeing,
         SessionBeing,
+        AttachmentBeing,
         OpenAIProviderBeing,
         AnthropicProviderBeing,
         GeminiProviderBeing,
@@ -43,10 +47,12 @@ def get_beings() -> tuple[type[Being], ...]:
         ModelGatewayBeing,
         WorkspaceBeing,
         ProjectsBeing,
+        SavedPromptsBeing,
         ReadBeing,
         EditBeing,
         BashBeing,
         ToolShelfBeing,
+        McpBeing,
         ApprovalBeing,
         PromptBeing,
         AgentLoopBeing,
@@ -60,6 +66,7 @@ __all__ = [
     "AgentLoopBeing",
     "AnthropicProviderBeing",
     "ApprovalBeing",
+    "AttachmentBeing",
     "AuthBeing",
     "BashBeing",
     "CliBeing",
@@ -67,11 +74,13 @@ __all__ = [
     "GeminiProviderBeing",
     "LionBeing",
     "ModelGatewayBeing",
+    "McpBeing",
     "OpenAIProviderBeing",
     "PromptBeing",
     "ProjectsBeing",
     "ProviderRegistryBeing",
     "ReadBeing",
+    "SavedPromptsBeing",
     "SessionBeing",
     "SettingsBeing",
     "StorageBeing",

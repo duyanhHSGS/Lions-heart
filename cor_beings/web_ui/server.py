@@ -16,6 +16,7 @@ from threading import Thread
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from cor_beings.attachments import MAX_ATTACHMENT_BYTES
 from cor_beings.turn_manager import TERMINAL_STATUSES
 
 from cor_beings.session import SessionEvent
@@ -57,6 +58,20 @@ class WebCallbacks:
     cancel_turn: Callable[[str], None]
     approvals: Callable[[str], tuple[dict[str, object], ...]]
     decide_approval: Callable[[str, bool], None]
+    upload_attachment: Callable[[str, str, bytes, str, bool], dict[str, object]]
+    list_attachments: Callable[[str], tuple[dict[str, object], ...]]
+    download_attachment: Callable[[str], tuple[dict[str, object], bytes]]
+    delete_attachment: Callable[[str], None]
+    list_saved_prompts: Callable[[str], tuple[dict[str, object], ...]]
+    create_saved_prompt: Callable[[str, str, str | None], dict[str, object]]
+    update_saved_prompt: Callable[[str, str, str, int], dict[str, object]]
+    delete_saved_prompt: Callable[[str], None]
+    list_mcp: Callable[[], tuple[dict[str, object], ...]]
+    create_mcp: Callable[[str, str, Mapping[str, object], str | None], dict[str, object]]
+    import_mcp: Callable[[list[Mapping[str, object]]], tuple[dict[str, object], ...]]
+    update_mcp: Callable[[str, str, str, Mapping[str, object], bool, str | None, bool], dict[str, object]]
+    delete_mcp: Callable[[str], None]
+    refresh_mcp: Callable[[str], dict[str, object]]
     secure_cookie: bool = False
 
 
@@ -284,7 +299,47 @@ def _handler_type(
                     include_body=include_body,
                 )
                 return
+            if path == "/api/saved-prompts" and callbacks is not None:
+                if not self._authorized(): return
+                query = parse_qs(parsed.query).get("q", [""])[0]
+                try: rows = callbacks.list_saved_prompts(query)
+                except (TypeError, ValueError) as error:
+                    self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}, include_body=include_body); return
+                self._send_json(HTTPStatus.OK, {"prompts": rows}, include_body=include_body); return
+            if path == "/api/mcp/connections" and callbacks is not None:
+                if not self._authorized(): return
+                self._send_json(HTTPStatus.OK, {"connections": callbacks.list_mcp()}, include_body=include_body); return
+            if path == "/api/attachments" and callbacks is not None:
+                if not self._authorized():
+                    return
+                conversation_id = parse_qs(parsed.query).get("conversation_id", [""])[0]
+                if not conversation_id:
+                    conversation_id = callbacks.active_conversation()[0]
+                try:
+                    rows = callbacks.list_attachments(conversation_id)
+                except LookupError:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "conversation not found"}, include_body=include_body)
+                    return
+                self._send_json(HTTPStatus.OK, {"attachments": rows}, include_body=include_body)
+                return
             parts = path.strip("/").split("/")
+            if callbacks is not None and len(parts) == 4 and parts[:2] == ["api", "attachments"] and parts[3] == "content":
+                if not self._authorized():
+                    return
+                try:
+                    metadata, body = callbacks.download_attachment(parts[2])
+                except LookupError:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "attachment not found"}, include_body=include_body)
+                    return
+                except RuntimeError:
+                    self._send_json(HTTPStatus.CONFLICT, {"error": "attachment content unavailable"}, include_body=include_body)
+                    return
+                safe_ascii = str(metadata["file_name"]).encode("ascii", "ignore").decode("ascii") or "attachment.txt"
+                self._send_bytes(
+                    HTTPStatus.OK, body, str(metadata["mime_type"]), include_body=include_body,
+                    extra_headers={"Content-Disposition": f'attachment; filename="{safe_ascii.replace(chr(34), "")}"'},
+                )
+                return
             if (
                 callbacks is not None
                 and len(parts) == 4
@@ -399,6 +454,9 @@ def _handler_type(
             parts = path.strip("/").split("/")
             dynamic_turn = len(parts) == 4 and parts[:2] == ["api", "sessions"] and parts[3] == "turns"
             dynamic_approval = len(parts) == 4 and parts[:2] == ["api", "approvals"] and parts[3] == "decision"
+            if path == "/api/attachments" and callbacks is not None:
+                self._upload_attachment()
+                return
             allowed = {
                 "/api/turn",
                 "/api/auth/setup",
@@ -409,8 +467,13 @@ def _handler_type(
                 "/api/conversations",
                 "/api/conversations/open",
                 "/api/projects",
+                "/api/saved-prompts",
+                "/api/mcp/connections",
+                "/api/mcp/import",
             }
-            if path not in allowed and not dynamic_turn and not dynamic_approval:
+            dynamic_prompt = len(parts) == 3 and parts[:2] == ["api", "saved-prompts"]
+            dynamic_mcp_test = len(parts) == 4 and parts[:2] == ["api", "mcp"] and parts[3] in ("test", "refresh")
+            if path not in allowed and not dynamic_turn and not dynamic_approval and not dynamic_prompt and not dynamic_mcp_test:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "route not found"})
                 return
 
@@ -583,6 +646,45 @@ def _handler_type(
                         return
                     self._send_json(HTTPStatus.CREATED, {"id": project_id})
                     return
+                if path == "/api/saved-prompts":
+                    try:
+                        item = callbacks.create_saved_prompt(payload.get("name"), payload.get("body"), payload.get("project_id"))
+                    except LookupError:
+                        self._send_json(HTTPStatus.NOT_FOUND, {"error": "project not found"}); return
+                    except (TypeError, ValueError) as error:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}); return
+                    self._send_json(HTTPStatus.CREATED, {"prompt": item}); return
+                if dynamic_prompt:
+                    try:
+                        item = callbacks.update_saved_prompt(parts[2], payload.get("name"), payload.get("body"), payload.get("revision"))
+                    except LookupError:
+                        self._send_json(HTTPStatus.NOT_FOUND, {"error": "saved prompt not found"}); return
+                    except RuntimeError as error:
+                        self._send_json(HTTPStatus.CONFLICT, {"error": str(error)}); return
+                    except (TypeError, ValueError) as error:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}); return
+                    self._send_json(HTTPStatus.OK, {"prompt": item}); return
+                if path in ("/api/mcp/connections", "/api/mcp/import"):
+                    items = payload.get("connections") if path.endswith("import") else [payload]
+                    if not isinstance(items, list) or not items or len(items) > 32:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "connections must be a bounded list"}); return
+                    try:
+                        if path.endswith("import"):
+                            created = list(callbacks.import_mcp(items))
+                        else:
+                            item = items[0]
+                            if not isinstance(item, dict): raise ValueError("connection must be an object")
+                            created = [callbacks.create_mcp(item.get("name"), item.get("transport"), item.get("config"), item.get("credential"))]
+                    except (TypeError, ValueError) as error:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}); return
+                    self._send_json(HTTPStatus.CREATED, {"connections": created}); return
+                if dynamic_mcp_test:
+                    try: item = callbacks.refresh_mcp(parts[2])
+                    except LookupError:
+                        self._send_json(HTTPStatus.NOT_FOUND, {"error": "MCP connection not found"}); return
+                    except Exception as error:
+                        self._send_json(HTTPStatus.BAD_GATEWAY, {"error": "MCP connection test failed", "kind": type(error).__name__}); return
+                    self._send_json(HTTPStatus.OK, {"connection": item}); return
                 if dynamic_turn:
                     try:
                         turn_id = callbacks.create_turn(parts[2], message)
@@ -628,6 +730,45 @@ def _handler_type(
                 {"reply": reply},
             )
 
+        def _upload_attachment(self) -> None:
+            if callbacks is None or not self._authorized() or not self._csrf_valid():
+                return
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is None:
+                self._send_json(HTTPStatus.LENGTH_REQUIRED, {"error": "Content-Length required"})
+                return
+            try:
+                length = int(raw_length)
+            except ValueError:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid Content-Length"})
+                return
+            if length < 0 or length > MAX_ATTACHMENT_BYTES:
+                if length > MAX_ATTACHMENT_BYTES:
+                    self.close_connection = True
+                self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "attachment too large"})
+                return
+            file_name = self.headers.get("X-File-Name", "")
+            try:
+                file_name = __import__("urllib.parse", fromlist=["unquote"]).unquote(file_name)
+            except Exception:
+                file_name = ""
+            mime_type = self.headers.get("Content-Type", "")
+            conversation_id, temporary = callbacks.active_conversation()
+            requested_conversation = self.headers.get("X-Conversation-Id")
+            if requested_conversation and requested_conversation != conversation_id:
+                self._send_json(HTTPStatus.CONFLICT, {"error": "conversation is not active"})
+                return
+            body = self.rfile.read(length)
+            try:
+                metadata = callbacks.upload_attachment(file_name, mime_type, body, conversation_id, temporary)
+            except LookupError:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "conversation not found"})
+                return
+            except (TypeError, ValueError) as error:
+                self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
+                return
+            self._send_json(HTTPStatus.CREATED, {"attachment": metadata})
+
         def _method_not_allowed(self) -> None:
             self._send_json(
                 HTTPStatus.METHOD_NOT_ALLOWED, {"error": "method not allowed"}
@@ -636,7 +777,9 @@ def _handler_type(
         def do_DELETE(self) -> None:
             path = urlsplit(self.path).path
             parts = path.strip("/").split("/")
-            if callbacks is None or len(parts) != 3 or parts[0] != "api" or parts[1] not in ("turns", "projects"):
+            valid_delete = len(parts) == 3 and parts[0] == "api" and parts[1] in ("turns", "projects", "attachments", "saved-prompts")
+            mcp_delete = len(parts) == 4 and parts[:3] == ["api", "mcp", "connections"]
+            if callbacks is None or not (valid_delete or mcp_delete):
                 self._method_not_allowed()
                 return
             if not self._authorized() or not self._csrf_valid():
@@ -644,23 +787,37 @@ def _handler_type(
             try:
                 if parts[1] == "turns":
                     callbacks.cancel_turn(parts[2])
-                else:
+                elif parts[1] == "projects":
                     callbacks.delete_project(parts[2])
+                elif parts[1] == "attachments":
+                    callbacks.delete_attachment(parts[2])
+                elif parts[1] == "saved-prompts":
+                    callbacks.delete_saved_prompt(parts[2])
+                else:
+                    callbacks.delete_mcp(parts[3])
             except LookupError:
-                self._send_json(HTTPStatus.NOT_FOUND, {"error": "turn not found"})
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "resource not found"})
                 return
             except RuntimeError as error:
                 self._send_json(HTTPStatus.CONFLICT, {"error": str(error)})
                 return
             if parts[1] == "turns":
                 self._send_json(HTTPStatus.ACCEPTED, {"turn_id": parts[2], "cancelled": True})
-            else:
+            elif parts[1] == "projects":
                 self._send_json(HTTPStatus.OK, {"project_id": parts[2], "deleted": True})
+            elif parts[1] == "attachments":
+                self._send_json(HTTPStatus.OK, {"attachment_id": parts[2], "deleted": True})
+            elif parts[1] == "saved-prompts":
+                self._send_json(HTTPStatus.OK, {"prompt_id": parts[2], "deleted": True})
+            else:
+                self._send_json(HTTPStatus.OK, {"connection_id": parts[3], "deleted": True})
         do_PATCH = _method_not_allowed
         def do_PUT(self) -> None:
             path = urlsplit(self.path).path
             parts = path.strip("/").split("/")
-            if callbacks is None or len(parts) != 3 or parts[:2] != ["api", "projects"]:
+            project_put = len(parts) == 3 and parts[:2] == ["api", "projects"]
+            mcp_put = len(parts) == 4 and parts[:3] == ["api", "mcp", "connections"]
+            if callbacks is None or not (project_put or mcp_put):
                 self._method_not_allowed()
                 return
             if not self._authorized() or not self._csrf_valid():
@@ -677,14 +834,17 @@ def _handler_type(
                 name = payload.get("name") if isinstance(payload, dict) else None
                 if not isinstance(name, str):
                     raise ValueError
-                callbacks.rename_project(parts[2], name)
+                if project_put:
+                    callbacks.rename_project(parts[2], name)
+                else:
+                    callbacks.update_mcp(parts[3], name, payload.get("transport"), payload.get("config"), payload.get("enabled", True), payload.get("credential"), payload.get("clear_credential", False))
             except LookupError:
-                self._send_json(HTTPStatus.NOT_FOUND, {"error": "project not found"})
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "resource not found"})
                 return
             except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-                self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "valid project name required"})
+                self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "valid update required"})
                 return
-            self._send_json(HTTPStatus.OK, {"project_id": parts[2], "name": name.strip()})
+            self._send_json(HTTPStatus.OK, {"id": parts[2] if project_put else parts[3], "name": name.strip()})
 
     return WebUiRequestHandler
 

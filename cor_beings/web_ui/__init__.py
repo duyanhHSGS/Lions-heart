@@ -10,10 +10,13 @@ from threading import Thread, current_thread
 from cor_being import Being, Life, World
 from cor_beings.agent_loop import AgentLoopBeing
 from cor_beings.auth import AuthBeing
+from cor_beings.attachments import AttachmentBeing
 from cor_beings.providers import ProviderRegistryBeing
+from cor_beings.mcp import McpBeing
 from cor_beings.projects import ProjectsBeing
 from cor_beings.session import SessionBeing, SessionEvent
 from cor_beings.settings import SettingsBeing
+from cor_beings.saved_prompts import SavedPromptsBeing
 from cor_beings.storage import StorageBeing
 from cor_beings.turn_manager import TurnManagerBeing
 
@@ -33,6 +36,9 @@ class WebUiBeing(Being):
         StorageBeing,
         TurnManagerBeing,
         ProjectsBeing,
+        AttachmentBeing,
+        SavedPromptsBeing,
+        McpBeing,
     )
 
     def __init__(self, *, host: str = "127.0.0.1", port: int = 8765) -> None:
@@ -50,6 +56,9 @@ class WebUiBeing(Being):
         self._storage: StorageBeing | None = None
         self._turns: TurnManagerBeing | None = None
         self._projects: ProjectsBeing | None = None
+        self._attachments: AttachmentBeing | None = None
+        self._saved_prompts: SavedPromptsBeing | None = None
+        self._mcp: McpBeing | None = None
         self._server: WebUiHttpServer | None = None
         self._thread: Thread | None = None
 
@@ -74,6 +83,9 @@ class WebUiBeing(Being):
         storage = world.need(StorageBeing)
         turns = world.need(TurnManagerBeing)
         projects = world.need(ProjectsBeing)
+        attachments = world.need(AttachmentBeing)
+        saved_prompts = world.need(SavedPromptsBeing)
+        mcp = world.need(McpBeing)
         if self._host not in ("127.0.0.1", "localhost", "::1"):
             config = storage.config
             base_url = str(config.get("public_base_url", ""))
@@ -93,20 +105,34 @@ class WebUiBeing(Being):
             list_models=lambda name, refresh: providers.list_models(name, refresh=refresh),
             list_conversations=session.list_conversations,
             active_conversation=lambda: (session.conversation_id, session.temporary),
-            new_conversation=lambda title, temporary: session.new_conversation(
-                title=title, temporary=temporary
-            ),
-            open_conversation=session.open_conversation,
+            new_conversation=self._new_conversation,
+            open_conversation=self._open_conversation,
             list_projects=projects.list,
             create_project=lambda name, workspace: projects.create(name, workspace=workspace),
             rename_project=projects.rename,
-            delete_project=projects.delete,
+            delete_project=self._delete_project,
             create_turn=turns.create,
             turn_events=turns.events_after,
             wait_for_turn_events=turns.wait_for_events,
             cancel_turn=turns.cancel,
             approvals=turns.approvals,
             decide_approval=turns.decide_approval,
+            upload_attachment=lambda name, mime, data, conversation_id, temporary: attachments.upload(
+                name, mime, data, conversation_id=conversation_id, temporary=temporary
+            ),
+            list_attachments=lambda conversation_id: attachments.list(conversation_id=conversation_id),
+            download_attachment=attachments.download,
+            delete_attachment=attachments.delete,
+            list_saved_prompts=lambda query: saved_prompts.search(query),
+            create_saved_prompt=lambda name, body, project_id: saved_prompts.create(name, body, project_id=project_id),
+            update_saved_prompt=lambda prompt_id, name, body, revision: saved_prompts.update(prompt_id, name, body, revision=revision),
+            delete_saved_prompt=saved_prompts.delete,
+            list_mcp=mcp.list,
+            create_mcp=lambda name, transport, config, credential: mcp.create(name, transport, config, credential=credential),
+            import_mcp=mcp.import_connections,
+            update_mcp=lambda connection_id, name, transport, config, enabled, credential, clear: mcp.update(connection_id, name, transport, config, enabled=enabled, credential=credential, clear_credential=clear),
+            delete_mcp=mcp.delete,
+            refresh_mcp=mcp.test,
             secure_cookie=str(storage.config.get("public_base_url", "")).startswith("https://"),
         )
         server, thread = create_server(
@@ -125,6 +151,9 @@ class WebUiBeing(Being):
         self._storage = storage
         self._turns = turns
         self._projects = projects
+        self._attachments = attachments
+        self._saved_prompts = saved_prompts
+        self._mcp = mcp
         self._server = server
         self._thread = thread
         life.on_death(self._stop)
@@ -170,6 +199,35 @@ class WebUiBeing(Being):
         session = auth.login(username, password, remote=remote)
         return session.token, session.csrf_token, session.expires_at
 
+    def _new_conversation(self, title: str, temporary: bool) -> str:
+        session = self._session
+        if session is None:
+            raise RuntimeError("web UI is not alive")
+        self._clear_active_temporary()
+        return session.new_conversation(title=title, temporary=temporary)
+
+    def _open_conversation(self, conversation_id: str) -> None:
+        session = self._session
+        if session is None:
+            raise RuntimeError("web UI is not alive")
+        self._clear_active_temporary()
+        session.open_conversation(conversation_id)
+
+    def _clear_active_temporary(self) -> None:
+        session = self._session
+        attachments = self._attachments
+        if session is not None and attachments is not None and session.temporary:
+            attachments.clear_temporary(session.conversation_id)
+
+    def _delete_project(self, project_id: str) -> None:
+        projects = self._projects
+        attachments = self._attachments
+        if projects is None or attachments is None:
+            raise RuntimeError("web UI is not alive")
+        for item in attachments.list(project_id=project_id):
+            attachments.delete(str(item["id"]))
+        projects.delete(project_id)
+
     def _stop(self) -> None:
         server = self._server
         thread = self._thread
@@ -183,6 +241,9 @@ class WebUiBeing(Being):
         self._storage = None
         self._turns = None
         self._projects = None
+        self._attachments = None
+        self._saved_prompts = None
+        self._mcp = None
 
         if server is not None:
             if thread is not None and thread.is_alive():

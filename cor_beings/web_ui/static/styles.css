@@ -1240,3 +1240,15 @@ kbd {
     transition-duration: .01ms !important;
   }
 }
+/* TODO: Add richer per-message attachment selection after durable branching lands. */
+.attachment-chips { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.attachment-chip { border:1px solid var(--border, #d6d3ce); border-radius:999px; padding:5px 9px; background:transparent; color:inherit; font-size:12px; cursor:pointer; }
+.attachment-chip:hover { text-decoration:line-through; }
+/* TODO: Add prompt folders only when search stops being enough. */
+.small-dialog { width:min(620px,calc(100% - 24px)); max-height:85dvh; overflow:auto; background:var(--surface,#fff); color:var(--text,#222); border-radius:16px; padding:18px; box-shadow:0 20px 70px #0005; }
+.small-dialog header { display:flex; align-items:center; justify-content:space-between; }
+.small-dialog input,.small-dialog textarea,.mcp-editor input,.mcp-editor select { width:100%; box-sizing:border-box; margin:6px 0; padding:9px; border:1px solid var(--border); border-radius:8px; background:transparent; color:inherit; }
+.small-dialog textarea { min-height:130px; resize:vertical; }
+.resource-list { display:grid; gap:7px; margin:10px 0; }
+.resource-row { display:flex; align-items:center; gap:8px; justify-content:space-between; border:1px solid var(--border); border-radius:9px; padding:8px; }
+.resource-row > button:first-of-type { flex:1; text-align:left; }

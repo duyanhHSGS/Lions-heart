@@ -16,6 +16,7 @@ from cor_beings import (
     AgentLoopBeing,
     AnthropicProviderBeing,
     ApprovalBeing,
+    AttachmentBeing,
     AuthBeing,
     BashBeing,
     CliBeing,
@@ -23,11 +24,13 @@ from cor_beings import (
     LionBeing,
     GeminiProviderBeing,
     ModelGatewayBeing,
+    McpBeing,
     OpenAIProviderBeing,
     PromptBeing,
     ProjectsBeing,
     ProviderRegistryBeing,
     ReadBeing,
+    SavedPromptsBeing,
     SessionBeing,
     SettingsBeing,
     StorageBeing,
@@ -40,6 +43,7 @@ from cor_beings import (
 from cor_beings.cli.process import run_console, start_console_thread
 from cor_beings.lion import ModelReply, ToolCall
 from cor_beings.prompt import PromptSnapshot
+from cor_beings.providers import ProviderEvent
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -111,6 +115,7 @@ def test_composition_is_the_provider_first_lion_beings() -> None:
         SettingsBeing,
         AuthBeing,
         SessionBeing,
+        AttachmentBeing,
         OpenAIProviderBeing,
         AnthropicProviderBeing,
         GeminiProviderBeing,
@@ -118,10 +123,12 @@ def test_composition_is_the_provider_first_lion_beings() -> None:
         ModelGatewayBeing,
         WorkspaceBeing,
         ProjectsBeing,
+        SavedPromptsBeing,
         ReadBeing,
         EditBeing,
         BashBeing,
         ToolShelfBeing,
+        McpBeing,
         ApprovalBeing,
         PromptBeing,
         AgentLoopBeing,
@@ -143,6 +150,7 @@ def test_dependency_graph_is_explicit_and_tiny() -> None:
     assert SettingsBeing.needs == (StorageBeing,)
     assert AuthBeing.needs == (StorageBeing,)
     assert SessionBeing.needs == (StorageBeing,)
+    assert AttachmentBeing.needs == (StorageBeing,)
     assert ProviderRegistryBeing.needs == (
         OpenAIProviderBeing,
         AnthropicProviderBeing,
@@ -151,9 +159,11 @@ def test_dependency_graph_is_explicit_and_tiny() -> None:
     assert ModelGatewayBeing.needs == (ProviderRegistryBeing, SettingsBeing)
     assert ReadBeing.needs == (WorkspaceBeing,)
     assert ProjectsBeing.needs == (StorageBeing, WorkspaceBeing)
+    assert SavedPromptsBeing.needs == (StorageBeing,)
     assert EditBeing.needs == (WorkspaceBeing,)
     assert BashBeing.needs == (WorkspaceBeing,)
     assert ToolShelfBeing.needs == (ReadBeing, EditBeing, BashBeing)
+    assert McpBeing.needs == (StorageBeing, ToolShelfBeing)
     assert PromptBeing.needs == (SessionBeing, ToolShelfBeing)
     assert ApprovalBeing.needs == (StorageBeing, ToolShelfBeing, SessionBeing)
     assert AgentLoopBeing.needs == (
@@ -173,8 +183,38 @@ def test_dependency_graph_is_explicit_and_tiny() -> None:
         StorageBeing,
         TurnManagerBeing,
         ProjectsBeing,
+        AttachmentBeing,
+        SavedPromptsBeing,
+        McpBeing,
     )
     assert CliBeing.needs == (AgentLoopBeing,)
+
+
+def test_agent_retrieves_bounded_attachment_context_without_local_paths(harness) -> None:
+    session = harness.get(SessionBeing)
+    attachments = harness.get(AttachmentBeing)
+    item = attachments.upload(
+        "lion-notes.md",
+        "text/markdown",
+        b"The launch word is aardvark.",
+        conversation_id=session.conversation_id,
+    )
+    gateway = harness.get(ModelGatewayBeing)
+    requests = []
+
+    def stream(request, _cancel):
+        requests.append(request)
+        yield ProviderEvent.make("text_delta", text="Found it")
+        yield ProviderEvent.make("completed")
+
+    gateway.stream = stream
+    assert harness.get(AgentLoopBeing).run_turn("What is the aardvark launch word?") == "Found it"
+    sent = requests[0]
+    assert "The launch word is aardvark" in sent.system
+    assert sent.attachments == ({"id": item["id"], "name": "lion-notes.md", "kind": "retrieved_text"},)
+    assert str(harness.get(StorageBeing).data_root) not in sent.system
+    user = next(event for event in session.events if event.kind == "user")
+    assert tuple(user.data["attachment_ids"]) == (item["id"],)
 
 
 def test_session_appends_events_in_order_and_returns_snapshot() -> None:

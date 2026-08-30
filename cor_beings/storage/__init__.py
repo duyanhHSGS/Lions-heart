@@ -15,7 +15,7 @@ from typing import Iterator, Sequence
 from cor_being import Being, Life, World
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class StorageBeing(Being):
@@ -306,6 +306,27 @@ class StorageBeing(Being):
                 );
                 INSERT INTO project_search(project_id, name) SELECT id, name FROM projects;
                 PRAGMA user_version = 4;
+                COMMIT;
+                """
+            )
+            current = 4
+        if current == 4:
+            connection.executescript(
+                """
+                BEGIN;
+                ALTER TABLE saved_prompts ADD COLUMN normalized_name TEXT NOT NULL DEFAULT '';
+                ALTER TABLE saved_prompts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+                UPDATE saved_prompts SET normalized_name=lower(trim(name));
+                CREATE UNIQUE INDEX saved_prompts_scope_name
+                    ON saved_prompts(COALESCE(project_id, ''), normalized_name);
+                CREATE INDEX saved_prompts_order
+                    ON saved_prompts(COALESCE(project_id, ''), updated_at DESC, name, id);
+                CREATE VIRTUAL TABLE saved_prompt_search USING fts5(
+                    prompt_id UNINDEXED, name, body
+                );
+                INSERT INTO saved_prompt_search(prompt_id, name, body)
+                    SELECT id, name, body FROM saved_prompts;
+                PRAGMA user_version = 5;
                 COMMIT;
                 """
             )
