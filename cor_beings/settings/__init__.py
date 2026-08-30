@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from types import MappingProxyType
 from typing import Mapping
@@ -15,6 +16,7 @@ from cor_beings.storage import StorageBeing
 
 
 PROVIDERS = ("openai", "anthropic", "gemini")
+_PROVIDER_ID = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 DEFAULTS: dict[str, object] = {
     "default_provider": "openai",
     "default_text_model": "",
@@ -58,8 +60,8 @@ class SettingsBeing(Being):
     @staticmethod
     def _validate(values: Mapping[str, object]) -> None:
         provider = values.get("default_provider")
-        if provider not in PROVIDERS:
-            raise ValueError("default_provider must be openai, anthropic, or gemini")
+        if not isinstance(provider, str) or _PROVIDER_ID.fullmatch(provider) is None:
+            raise ValueError("default_provider must be a valid provider ID")
         theme = values.get("theme")
         if theme not in ("system", "light", "dark"):
             raise ValueError("theme must be system, light, or dark")
@@ -92,8 +94,7 @@ class SettingsBeing(Being):
         return self.values
 
     def set_provider_key(self, provider: str, secret: str) -> None:
-        if provider not in PROVIDERS:
-            raise ValueError("unknown provider")
+        provider = self._provider_id(provider)
         if not isinstance(secret, str) or not secret.strip():
             raise ValueError("provider key must be a non-empty string")
         storage = self._require_storage()
@@ -109,13 +110,11 @@ class SettingsBeing(Being):
         )
 
     def delete_provider_key(self, provider: str) -> None:
-        if provider not in PROVIDERS:
-            raise ValueError("unknown provider")
+        provider = self._provider_id(provider)
         self._require_storage().execute("DELETE FROM provider_secrets WHERE provider=?", (provider,))
 
     def provider_key(self, provider: str) -> str | None:
-        if provider not in PROVIDERS:
-            raise ValueError("unknown provider")
+        provider = self._provider_id(provider)
         storage = self._require_storage()
         row = storage.fetchone(
             "SELECT ciphertext, nonce FROM provider_secrets WHERE provider=?", (provider,)
@@ -131,13 +130,21 @@ class SettingsBeing(Being):
         storage = self._require_storage()
         rows = storage.fetchall("SELECT provider, suffix FROM provider_secrets")
         configured = {row["provider"]: {"configured": True, "suffix": row["suffix"]} for row in rows}
+        custom = storage.fetchall("SELECT id FROM provider_connections ORDER BY created_at,id")
+        provider_ids = (*PROVIDERS, *(str(row["id"]) for row in custom))
         return {
             "values": dict(self._values),
             "providers": {
                 provider: configured.get(provider, {"configured": False, "suffix": ""})
-                for provider in PROVIDERS
+                for provider in provider_ids
             },
         }
+
+    @staticmethod
+    def _provider_id(provider: str) -> str:
+        if not isinstance(provider, str) or _PROVIDER_ID.fullmatch(provider) is None:
+            raise ValueError("invalid provider ID")
+        return provider
 
     @staticmethod
     def _master_key(storage: StorageBeing) -> bytes:

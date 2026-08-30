@@ -149,7 +149,7 @@ Inherited tests that exist only to police upstream Cor Leonis behavior are not s
 ## Current Lion application spine
 
 - `StorageBeing`, `SettingsBeing`, and `AuthBeing` own migrations, safe settings, encrypted provider credentials, the single owner, and expiring server sessions.
-- `OpenAIProviderBeing`, `AnthropicProviderBeing`, and `GeminiProviderBeing` normalize remote streaming behind `ModelGatewayBeing`; `LionBeing` is only an injectable deterministic test fake.
+- `OpenAIProviderBeing`, `AnthropicProviderBeing`, and `GeminiProviderBeing` normalize built-in remote streaming behind `ModelGatewayBeing`. `ProviderRegistryBeing` also lifecycle-owns durable owner-created OpenAI-compatible HTTPS connections with encrypted optional keys, bounded model catalogs, and optimistic edits; `LionBeing` is only an injectable deterministic test fake.
 - `SessionBeing` owns durable or temporary conversation history; `ProjectsBeing` owns searchable project metadata and assignment targets.
 - `TurnManagerBeing` owns background turns, cancellation, persisted ordered events, and resumable SSE traces.
 - `ApprovalBeing` makes every tool call wait for an explicit, expiring, duplicate-safe owner decision and executes an approved call once.
@@ -176,6 +176,7 @@ Whenever Lions-heart adds, removes, moves, renames, or materially changes produc
 - TODO: Replace `ToolShelfBeing`'s direct starter-tool dependencies with Life-owned dynamic registration only when dynamic tools are actually needed.
 - TODO: Add optional history-aware CLI line editing without sacrificing cancellable reads or Life-owned thread joining.
 - TODO: Connect audited concrete provider media runners and automatic provider-boundary activity recording to the ordinary media, recipe, and activity Beings.
+- TODO: Revalidate generic provider DNS at request time before describing custom endpoints as fully SSRF-hardened.
 - TODO: Bound idle per-conversation lock and completed-turn caches after large chat churn.
 - TODO: Keep Web Search disabled until a dedicated security and provider contract is deliberately implemented.
 - TODO: Add math and Mermaid only through audited build-free renderers, and semantic embeddings only as an optional retrieval layer.

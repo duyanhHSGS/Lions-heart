@@ -26,6 +26,8 @@ const settingsForm = $("#settings-form");
 const filePicker = $("#file-picker");
 const attachmentChips = $("#attachment-chips");
 const savedPromptsModal = $("#saved-prompts-modal");
+const chatActionModal = $("#chat-action-modal");
+const chatActionForm = $("#chat-action-form");
 
 let toastTimer = null;
 let busy = false;
@@ -33,6 +35,9 @@ let csrfToken = window.sessionStorage.getItem("lion-csrf") || "";
 let settingsSnapshot = null;
 let currentConversationId = "";
 let activeTurnId = "";
+let chatAction = null;
+let conversationProjects = [];
+let providerConnections = [];
 
 function showToast(text) {
   toast.textContent = text;
@@ -60,6 +65,13 @@ async function apiFetch(path, options = {}) {
 function closeMenus(exceptId = null) {
   document.querySelectorAll(".menu-trigger[data-menu]").forEach((trigger) => {
     const menuId = trigger.dataset.menu;
+    if (menuId === exceptId) return;
+    const menu = document.getElementById(menuId);
+    if (menu) menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  });
+  document.querySelectorAll(".chat-options-trigger").forEach((trigger) => {
+    const menuId = trigger.getAttribute("aria-controls");
     if (menuId === exceptId) return;
     const menu = document.getElementById(menuId);
     if (menu) menu.hidden = true;
@@ -167,25 +179,113 @@ async function loadMcpConnections() {
 }
 
 async function loadConversations() {
-  const payload = await apiFetch("/api/conversations");
+  const [payload, projectPayload] = await Promise.all([apiFetch("/api/conversations"), apiFetch("/api/projects")]);
   const rows = Array.isArray(payload.conversations) ? payload.conversations : [];
+  conversationProjects = Array.isArray(projectPayload.projects) ? projectPayload.projects : [];
   recents.hidden = rows.length === 0;
   recents.replaceChildren();
   if (!rows.length) return;
-  const heading = document.createElement("h2");
-  heading.textContent = "Recents";
-  recents.append(heading);
-  rows.slice(0, 20).forEach((conversation) => {
-    const button = document.createElement("button");
-    button.className = "nav-row current-chat";
-    button.type = "button";
-    button.textContent = conversation.title || "New chat";
-    button.addEventListener("click", async () => {
-      await apiFetch("/api/conversations/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: conversation.id }) });
-      await loadSession();
-    });
-    recents.append(button);
+  const pinned = rows.filter((item) => Boolean(item.pinned));
+  const recent = rows.filter((item) => !item.pinned);
+  if (pinned.length) recents.append(makeConversationGroup("Pinned", pinned.slice(0, 20)));
+  if (recent.length) recents.append(makeConversationGroup("Recents", recent.slice(0, Math.max(0, 20 - pinned.length))));
+}
+
+function icon(name, className = "") {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  if (className) svg.setAttribute("class", className);
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `#i-${name}`); svg.append(use); return svg;
+}
+
+function chatMenuAction(label, iconName, action, className = "") {
+  const button = document.createElement("button"); button.type = "button"; button.className = className;
+  button.append(icon(iconName), document.createTextNode(label));
+  button.addEventListener("click", (event) => {
+    event.stopPropagation(); closeMenus();
+    void Promise.resolve(action()).catch((error) => showToast(`Chat update failed · ${error.message}`));
   });
+  return button;
+}
+
+function makeConversationGroup(label, conversations) {
+  const group = document.createElement("section"); group.className = "chat-group";
+  const heading = document.createElement("h2"); heading.textContent = label; group.append(heading);
+  for (const conversation of conversations) group.append(makeConversationRow(conversation));
+  return group;
+}
+
+function makeConversationRow(conversation) {
+  const row = document.createElement("div"); row.className = "chat-row";
+  if (conversation.id === currentConversationId) row.classList.add("active");
+  const open = document.createElement("button"); open.className = "nav-row current-chat"; open.type = "button";
+  const titleWrap = document.createElement("span"); titleWrap.className = "chat-title-wrap";
+  if (conversation.pinned) titleWrap.append(icon("pin", "chat-pin"));
+  const title = document.createElement("span"); title.className = "history-title"; title.textContent = conversation.title || "New chat";
+  titleWrap.append(title); open.append(titleWrap);
+  open.addEventListener("click", async () => {
+    if (busy) { showToast("Finish or stop the current answer before switching chats"); return; }
+    await apiFetch("/api/conversations/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: conversation.id }) });
+    await loadSession(); await loadConversations(); input.focus();
+  });
+
+  const menuId = `chat-menu-${conversation.id}`;
+  const trigger = document.createElement("button"); trigger.type = "button"; trigger.className = "chat-options-trigger";
+  trigger.setAttribute("aria-label", `Options for ${conversation.title || "New chat"}`); trigger.setAttribute("aria-expanded", "false"); trigger.setAttribute("aria-controls", menuId); trigger.append(icon("more"));
+  const menu = document.createElement("div"); menu.className = "popup chat-options-menu"; menu.id = menuId; menu.hidden = true;
+  menu.append(
+    chatMenuAction("Rename", "pencil", () => openChatAction("rename", conversation)),
+    chatMenuAction(conversation.pinned ? "Unpin chat" : "Pin chat", "pin", async () => {
+      await updateConversation(conversation.id, { pinned: !Boolean(conversation.pinned) });
+      showToast(conversation.pinned ? "Chat unpinned" : "Chat pinned up top");
+    }),
+    chatMenuAction("Move to project", "folder", () => openChatAction("move", conversation)),
+  );
+  const markdown = document.createElement("a"); markdown.href = `/api/conversations/${encodeURIComponent(conversation.id)}/export?format=markdown`; markdown.append(icon("download"), document.createTextNode("Export Markdown"));
+  const json = document.createElement("a"); json.href = `/api/conversations/${encodeURIComponent(conversation.id)}/export?format=json`; json.append(icon("download"), document.createTextNode("Export JSON"));
+  const divider = document.createElement("hr");
+  menu.append(markdown, json, divider,
+    chatMenuAction("Archive", "archive", () => openChatAction("archive", conversation)),
+    chatMenuAction("Delete forever", "trash", () => openChatAction("delete", conversation), "danger"),
+  );
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation(); const opening = menu.hidden; closeMenus(opening ? menuId : null); menu.hidden = !opening; trigger.setAttribute("aria-expanded", String(opening));
+    if (opening) {
+      const rect = trigger.getBoundingClientRect();
+      menu.style.position = "fixed";
+      menu.style.left = `${Math.max(8, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8))}px`;
+    }
+  });
+  menu.addEventListener("click", (event) => event.stopPropagation());
+  row.append(open, trigger, menu); return row;
+}
+
+async function updateConversation(conversationId, change) {
+  await apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
+  await loadConversations();
+}
+
+function closeChatAction() {
+  chatActionModal.hidden = true; chatAction = null; chatActionForm.reset(); $("#chat-action-error").textContent = "";
+}
+
+function openChatAction(kind, conversation) {
+  closeMenus(); chatAction = { kind, conversation }; chatActionModal.hidden = false;
+  const titles = { rename: "Rename chat", move: "Move to project", archive: "Archive chat?", delete: "Delete chat forever?" };
+  const copies = { rename: "Give this chat a name that Future You can actually find.", move: "Choose a project home, or send it back to ordinary Recents.", archive: "The chat leaves the sidebar but stays safely stored.", delete: "This removes the chat and its messages. This cannot be undone." };
+  $("#chat-action-title").textContent = titles[kind]; $("#chat-action-copy").textContent = copies[kind];
+  $("#chat-title-field").hidden = kind !== "rename"; $("#chat-project-field").hidden = kind !== "move";
+  const titleInput = $("#chat-title-input"); titleInput.required = kind === "rename"; titleInput.value = conversation.title || "New chat";
+  const select = $("#chat-project-select"); select.replaceChildren();
+  const recentsOption = document.createElement("option"); recentsOption.value = ""; recentsOption.textContent = "Recents (no project)"; select.append(recentsOption);
+  const newOption = document.createElement("option"); newOption.value = "__new__"; newOption.textContent = "+ New project"; select.append(newOption);
+  for (const project of conversationProjects) { const option = document.createElement("option"); option.value = project.id; option.textContent = project.name; select.append(option); }
+  select.value = conversation.project_id || "";
+  $("#chat-new-project-field").hidden = true; $("#chat-new-project-input").required = false;
+  const submit = $("#chat-action-submit"); submit.textContent = kind === "rename" ? "Save name" : kind === "move" ? "Move chat" : kind === "archive" ? "Archive" : "Delete forever";
+  submit.classList.toggle("danger-action", kind === "delete");
+  window.requestAnimationFrame(() => (kind === "rename" ? titleInput : kind === "move" ? select : submit).focus());
 }
 
 function resizeInput() {
@@ -316,9 +416,60 @@ function showSettingsTab(name) {
   document.querySelectorAll("[data-settings-panel]").forEach((panel) => { panel.hidden = panel.dataset.settingsPanel !== name; });
 }
 
-function fillSettings(snapshot) {
+function providerModelList(value) {
+  return String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function providerConnectionCard(connection) {
+  const card = document.createElement("article"); card.className = "provider-card"; card.dataset.providerId = connection.id;
+  const heading = document.createElement("div"); heading.className = "provider-card-heading";
+  const title = document.createElement("strong"); title.textContent = connection.display_name;
+  const badge = document.createElement("span"); badge.textContent = connection.enabled ? "Enabled" : "Disabled";
+  heading.append(title, badge); card.append(heading);
+  const name = document.createElement("input"); name.value = connection.display_name; name.maxLength = 80; name.setAttribute("aria-label", "Provider name");
+  const url = document.createElement("input"); url.value = connection.base_url; url.maxLength = 2048; url.setAttribute("aria-label", "Provider base URL");
+  const models = document.createElement("input"); models.value = (connection.models || []).join(", "); models.maxLength = 4000; models.setAttribute("aria-label", "Provider model IDs");
+  const secret = document.createElement("input"); secret.type = "password"; secret.autocomplete = "off"; secret.placeholder = connection.configured ? "Leave blank to keep saved key" : "API key"; secret.setAttribute("aria-label", "Replacement API key");
+  const actions = document.createElement("div"); actions.className = "provider-card-actions";
+  const save = document.createElement("button"); save.type = "button"; save.textContent = "Save connection";
+  const toggle = document.createElement("button"); toggle.type = "button"; toggle.textContent = connection.enabled ? "Disable" : "Enable";
+  const clearKey = document.createElement("button"); clearKey.type = "button"; clearKey.textContent = "Clear key"; clearKey.hidden = !connection.configured;
+  const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete";
+  save.addEventListener("click", async () => {
+    const body = { display_name: name.value, base_url: url.value, models: providerModelList(models.value), revision: connection.revision };
+    if (secret.value) body.secret = secret.value;
+    await apiFetch(`/api/providers/${encodeURIComponent(connection.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    await loadSettings(); showToast("Provider connection saved");
+  });
+  toggle.addEventListener("click", async () => {
+    await apiFetch(`/api/providers/${encodeURIComponent(connection.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: !connection.enabled, revision: connection.revision }) });
+    await loadSettings();
+  });
+  clearKey.addEventListener("click", async () => {
+    await apiFetch(`/api/providers/${encodeURIComponent(connection.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clear_secret: true, revision: connection.revision }) });
+    await loadSettings(); showToast("Provider key cleared");
+  });
+  remove.addEventListener("click", async () => {
+    if (remove.dataset.confirm !== "yes") {
+      remove.dataset.confirm = "yes"; remove.textContent = "Delete forever?";
+      window.setTimeout(() => { remove.dataset.confirm = ""; remove.textContent = "Delete"; }, 5000);
+      return;
+    }
+    await apiFetch(`/api/providers/${encodeURIComponent(connection.id)}`, { method: "DELETE" });
+    await loadSettings(); showToast("Provider connection deleted");
+  });
+  actions.append(save, toggle, clearKey, remove); card.append(name, url, models, secret, actions); return card;
+}
+
+function fillSettings(snapshot, connections = providerConnections) {
   settingsSnapshot = snapshot;
   const values = snapshot.values || {};
+  providerConnections = connections;
+  const providerSelect = $("#default-provider");
+  providerSelect.replaceChildren();
+  for (const connection of connections.filter((item) => item.enabled)) {
+    const option = document.createElement("option"); option.value = connection.id; option.textContent = connection.display_name; providerSelect.append(option);
+  }
   for (const [name, value] of Object.entries(values)) {
     const field = settingsForm.elements.namedItem(name);
     if (field) field.value = value;
@@ -327,7 +478,7 @@ function fillSettings(snapshot) {
   applyTheme(values.theme || "system");
   const keyFields = $("#provider-key-fields");
   keyFields.replaceChildren();
-  for (const provider of ["openai", "anthropic", "gemini"]) {
+  for (const provider of connections.filter((item) => item.built_in).map((item) => item.id)) {
     const status = snapshot.providers && snapshot.providers[provider];
     const label = document.createElement("label");
     label.textContent = `${provider[0].toUpperCase()}${provider.slice(1)} API key ${status && status.configured ? `(saved ···${status.suffix})` : ""}`;
@@ -339,11 +490,13 @@ function fillSettings(snapshot) {
     label.append(field);
     keyFields.append(label);
   }
+  const custom = $("#provider-connections"); custom.replaceChildren();
+  for (const connection of connections.filter((item) => !item.built_in)) custom.append(providerConnectionCard(connection));
 }
 
 async function loadSettings() {
-  const snapshot = await apiFetch("/api/settings");
-  fillSettings(snapshot);
+  const [snapshot, catalog] = await Promise.all([apiFetch("/api/settings"), apiFetch("/api/providers")]);
+  fillSettings(snapshot, Array.isArray(catalog.providers) ? catalog.providers : []);
   return snapshot;
 }
 
@@ -429,6 +582,19 @@ $("#mcp-add").addEventListener("click", async () => {
   const config = transport === "http" ? { url: target } : { argv: target.split(/\s+/).filter(Boolean) };
   await apiFetch("/api/mcp/connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("#mcp-name").value, transport, config, credential: $("#mcp-credential").value || null }) });
   $("#mcp-credential").value = ""; await loadMcpConnections();
+});
+$("#provider-add").addEventListener("click", async () => {
+  const body = {
+    display_name: $("#provider-name").value,
+    base_url: $("#provider-base-url").value,
+    models: providerModelList($("#provider-models").value),
+    secret: $("#provider-secret").value || null,
+  };
+  try {
+    await apiFetch("/api/providers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    for (const id of ["#provider-name", "#provider-base-url", "#provider-models", "#provider-secret"]) $(id).value = "";
+    await loadSettings(); showToast("Generic provider added");
+  } catch (error) { $("#settings-error").textContent = error.message; }
 });
 $("#settings-open").addEventListener("click", () => void openSettings());
 $("#run-settings").addEventListener("click", () => void openSettings("models"));
@@ -581,6 +747,46 @@ for (const [id, kind] of [["#images-nav", "image"], ["#video-nav", "video"], ["#
 }
 $("#workbench-close").addEventListener("click", () => { workbenchModal.hidden = true; });
 workbenchModal.addEventListener("click", (event) => { if (event.target === workbenchModal) workbenchModal.hidden = true; });
+$("#chat-action-close").addEventListener("click", closeChatAction);
+$("#chat-action-cancel").addEventListener("click", closeChatAction);
+$("#chat-project-select").addEventListener("change", (event) => {
+  const creating = event.target.value === "__new__";
+  $("#chat-new-project-field").hidden = !creating; $("#chat-new-project-input").required = creating;
+  if (creating) $("#chat-new-project-input").focus();
+});
+chatActionModal.addEventListener("click", (event) => { if (event.target === chatActionModal) closeChatAction(); });
+chatActionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!chatAction) return;
+  const { kind, conversation } = chatAction;
+  if (busy && conversation.id === currentConversationId && ["archive", "delete"].includes(kind)) {
+    $("#chat-action-error").textContent = "Stop the current answer before removing this chat from view."; return;
+  }
+  $("#chat-action-error").textContent = ""; $("#chat-action-submit").disabled = true;
+  try {
+    if (kind === "rename") await updateConversation(conversation.id, { title: $("#chat-title-input").value.trim() });
+    else if (kind === "move") {
+      let projectId = $("#chat-project-select").value || null;
+      if (projectId === "__new__") {
+        const created = await apiFetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("#chat-new-project-input").value.trim() }) });
+        projectId = created.id;
+      }
+      await updateConversation(conversation.id, { project_id: projectId });
+    }
+    else if (kind === "archive") {
+      await updateConversation(conversation.id, { archived: true });
+      if (conversation.id === currentConversationId) {
+        await apiFetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "New chat", temporary: false }) });
+        await loadSession(); await loadConversations();
+      }
+    } else if (kind === "delete") {
+      await apiFetch(`/api/conversations/${encodeURIComponent(conversation.id)}`, { method: "DELETE" });
+      await loadSession(); await loadConversations();
+    }
+    closeChatAction(); showToast(kind === "delete" ? "Chat deleted" : kind === "archive" ? "Chat archived" : kind === "move" ? "Chat moved" : "Chat renamed");
+  } catch (error) { $("#chat-action-error").textContent = error.message; }
+  finally { $("#chat-action-submit").disabled = false; }
+});
 mediaForm.addEventListener("submit", async (event) => {
   event.preventDefault(); const data = new FormData(mediaForm);
   const body = { prompt: data.get("prompt"), provider: data.get("provider"), model: data.get("model") };
@@ -596,7 +802,7 @@ recipeForm.addEventListener("submit", async (event) => {
 
 document.addEventListener("click", () => closeMenus());
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; savedPromptsModal.hidden = true; workbenchModal.hidden = true; }
+  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; savedPromptsModal.hidden = true; workbenchModal.hidden = true; closeChatAction(); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); void openSettings(); }
 });
 

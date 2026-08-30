@@ -337,6 +337,17 @@ def test_web_ui_css_keeps_reference_geometry_and_theme_tokens(live_ui) -> None:
         assert declaration in stylesheet
 
 
+def test_settings_content_remains_scrollable_in_short_and_mobile_viewports(live_ui) -> None:
+    status, _headers, body = request(live_ui[0], "GET", "/styles.css")
+    stylesheet = body.decode("utf-8")
+    assert status == 200
+    assert "grid-template-rows: auto minmax(0, 1fr);" in stylesheet
+    assert "height: min(820px, calc(100dvh - 48px));" in stylesheet
+    assert "min-height: 0;\n  overflow: hidden;" in stylesheet
+    assert "flex: 1 1 auto;" in stylesheet
+    assert "overflow-x: auto; overflow-y: hidden;" in stylesheet
+
+
 def test_recent_conversations_have_no_fade_overlay(live_ui) -> None:
     ui = live_ui[0]
     html_status, _html_headers, html_body = request(ui, "GET", "/index.html")
@@ -503,6 +514,62 @@ def test_provider_key_api_returns_only_masked_state(live_ui) -> None:
     assert secret not in json.dumps(payload)
 
 
+def test_generic_provider_api_and_settings_ui_cover_full_crud(live_ui) -> None:
+    ui = live_ui[0]
+    status, _headers, body = request(ui, "GET", "/api/providers")
+    assert status == 200
+    assert [item["id"] for item in json.loads(body)["providers"][:3]] == ["openai", "anthropic", "gemini"]
+
+    status, created = json_request(
+        ui,
+        {"display_name": "My Gateway", "base_url": "https://gateway.example/v1", "models": ["lion-fast"], "secret": "secret-tail"},
+        path="/api/providers",
+    )
+    assert status == 201
+    provider = created["provider"]
+    assert provider["configured"] is True
+    assert "secret-tail" not in json.dumps(created)
+
+    status, _headers, body = request(
+        ui, "PUT", f"/api/providers/{provider['id']}",
+        body=json.dumps({"display_name": "Second Gateway", "enabled": False, "revision": provider["revision"]}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == 200
+    updated = json.loads(body)["provider"]
+    assert updated["display_name"] == "Second Gateway"
+    assert updated["enabled"] is False
+
+    status, _headers, body = request(ui, "DELETE", f"/api/providers/{provider['id']}")
+    assert status == 200
+    assert json.loads(body)["deleted"] is True
+
+    _, _, html = request(ui, "GET", "/index.html")
+    _, _, script = request(ui, "GET", "/app.js")
+    page = html.decode("utf-8")
+    controller = script.decode("utf-8")
+    assert 'id="provider-base-url"' in page
+    assert "OpenAI-compatible" in page
+    assert 'apiFetch("/api/providers"' in controller
+
+
+def test_generic_provider_api_rejects_unsafe_and_stale_updates(live_ui) -> None:
+    ui = live_ui[0]
+    status, payload = json_request(ui, {"changes": {"default_provider": "missing_provider"}}, path="/api/settings")
+    assert status == 422
+    assert "enabled provider" in payload["error"]
+    status, payload = json_request(ui, {"display_name": "Nope", "base_url": "http://localhost:9", "models": []}, path="/api/providers")
+    assert status == 422
+    assert "HTTPS" in payload["error"]
+
+    status, created = json_request(ui, {"display_name": "Safe", "base_url": "https://safe.example/v1", "models": []}, path="/api/providers")
+    assert status == 201
+    provider_id = created["provider"]["id"]
+    for body, expected in (({"enabled": False, "revision": 99}, 409), ({"enabled": "sometimes", "revision": 1}, 422)):
+        status, _headers, _body = request(ui, "PUT", f"/api/providers/{provider_id}", body=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        assert status == expected
+
+
 def test_background_turn_creation_and_resumable_sse(live_ui) -> None:
     ui, _agent, session, _life = live_ui
     status, payload = json_request(
@@ -553,6 +620,128 @@ def test_project_json_crud_routes(live_ui) -> None:
     status, _headers, body = request(ui, "DELETE", f"/api/projects/{project_id}")
     assert status == 200
     assert json.loads(body)["deleted"] is True
+
+
+def test_conversation_menu_routes_rename_pin_move_export_archive_and_delete(live_ui) -> None:
+    ui, _agent, session, _life = live_ui
+    conversation_id = session.conversation_id
+    session.append("user", text="menu route roar")
+    status, created = json_request(ui, {"name": "Lion Den"}, path="/api/projects")
+    assert status == 201
+    # RecordingProjects owns the route fixture; add matching durable ownership so
+    # SessionBeing can enforce the same project foreign-key check as production.
+    ui._storage.execute(  # type: ignore[union-attr]
+        "INSERT INTO projects(id,name,workspace,created_at,updated_at) VALUES (?,?,?,?,?)",
+        (created["id"], "Lion Den", None, 1, 1),
+    )
+
+    updates = (
+        ({"title": "Important roar"}, "title"),
+        ({"pinned": True}, "pinned"),
+        ({"project_id": created["id"]}, "project_id"),
+    )
+    for change, expected_field in updates:
+        status, _headers, body = request(
+            ui,
+            "PUT",
+            f"/api/conversations/{conversation_id}",
+            body=json.dumps(change).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        assert status == 200
+        assert json.loads(body) == {"id": conversation_id, "updated": expected_field}
+
+    status, _headers, body = request(ui, "GET", "/api/conversations")
+    row = json.loads(body)["conversations"][0]
+    assert row["title"] == "Important roar"
+    assert row["pinned"] == 1
+    assert row["project_id"] == created["id"]
+
+    for format_name, content_type, needle in (
+        ("markdown", "text/markdown; charset=utf-8", b"menu route roar"),
+        ("json", "application/json; charset=utf-8", b'"kind": "user"'),
+    ):
+        status, headers, body = request(
+            ui, "GET", f"/api/conversations/{conversation_id}/export?format={format_name}"
+        )
+        assert status == 200
+        assert headers["Content-Type"] == content_type
+        assert headers["Content-Disposition"].endswith(f'.{"json" if format_name == "json" else "md"}"')
+        assert needle in body
+
+    status, _headers, _body = request(
+        ui,
+        "PUT",
+        f"/api/conversations/{conversation_id}",
+        body=b'{"archived":true}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == 200
+    assert session.list_conversations() == ()
+    status, _headers, body = request(ui, "DELETE", f"/api/conversations/{conversation_id}")
+    assert status == 200
+    assert json.loads(body)["deleted"] is True
+    assert session.conversation_id != conversation_id
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {},
+        {"title": "x", "pinned": True},
+        {"title": 7},
+        {"pinned": "yes"},
+        {"project_id": 4},
+        {"archived": 1},
+    ),
+)
+def test_conversation_update_rejects_ambiguous_or_wrong_typed_payloads(live_ui, payload) -> None:
+    ui, _agent, session, _life = live_ui
+    status, _headers, body = request(
+        ui,
+        "PUT",
+        f"/api/conversations/{session.conversation_id}",
+        body=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == 422
+    assert json.loads(body) == {"error": "valid update required"}
+
+
+def test_conversation_update_reports_missing_chat_or_project(live_ui) -> None:
+    ui, _agent, session, _life = live_ui
+    status, _headers, _body = request(
+        ui,
+        "PUT",
+        "/api/conversations/missing",
+        body=b'{"pinned":true}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == 404
+    status, _headers, body = request(
+        ui,
+        "PUT",
+        f"/api/conversations/{session.conversation_id}",
+        body=b'{"project_id":"missing"}',
+        headers={"Content-Type": "application/json"},
+    )
+    assert status == 404
+    assert json.loads(body) == {"error": "resource not found"}
+
+
+def test_sidebar_chat_options_are_real_controls_not_todo_placeholders(live_ui) -> None:
+    ui = live_ui[0]
+    _, _, html = request(ui, "GET", "/index.html")
+    _, _, script = request(ui, "GET", "/app.js")
+    _, _, css = request(ui, "GET", "/styles.css")
+    page = html.decode("utf-8")
+    controller = script.decode("utf-8")
+    stylesheet = css.decode("utf-8")
+    for label in ("Rename", "Pin chat", "Move to project", "New project", "Export Markdown", "Archive", "Delete forever"):
+        assert label in controller
+    assert 'id="chat-action-modal"' in page
+    assert "chat-options-trigger" in stylesheet
+    assert "data-todo=\"Rename" not in page
 
 
 def test_attachment_routes_require_auth_csrf_and_round_trip_utf8(live_ui) -> None:

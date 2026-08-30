@@ -44,10 +44,20 @@ class WebCallbacks:
     set_provider_key: Callable[[str, str], None]
     delete_provider_key: Callable[[str], None]
     list_models: Callable[[str, bool], tuple[str, ...]]
+    list_provider_connections: Callable[[], tuple[dict[str, object], ...]]
+    create_provider_connection: Callable[[str, str, object, str | None], dict[str, object]]
+    update_provider_connection: Callable[..., dict[str, object]]
+    delete_provider_connection: Callable[[str], None]
     list_conversations: Callable[[], tuple[dict[str, object], ...]]
     active_conversation: Callable[[], tuple[str, bool]]
     new_conversation: Callable[[str, bool], str]
     open_conversation: Callable[[str], None]
+    rename_conversation: Callable[[str, str], None]
+    pin_conversation: Callable[[str, bool], None]
+    assign_conversation_project: Callable[[str, str | None], None]
+    archive_conversation: Callable[[str, bool], None]
+    delete_conversation: Callable[[str], None]
+    export_conversation: Callable[[str, str], str]
     list_projects: Callable[[], tuple[dict[str, object], ...]]
     create_project: Callable[[str, str | None], str]
     rename_project: Callable[[str, str], None]
@@ -310,6 +320,11 @@ def _handler_type(
                     return
                 self._send_json(HTTPStatus.OK, callbacks.settings_snapshot(), include_body=include_body)
                 return
+            if path == "/api/providers" and callbacks is not None:
+                if not self._authorized():
+                    return
+                self._send_json(HTTPStatus.OK, {"providers": callbacks.list_provider_connections()}, include_body=include_body)
+                return
             if path == "/api/conversations" and callbacks is not None:
                 if not self._authorized():
                     return
@@ -317,6 +332,28 @@ def _handler_type(
                     HTTPStatus.OK,
                     {"conversations": callbacks.list_conversations()},
                     include_body=include_body,
+                )
+                return
+            if callbacks is not None and len(parts := path.strip("/").split("/")) == 4 and parts[:2] == ["api", "conversations"] and parts[3] == "export":
+                if not self._authorized():
+                    return
+                format_name = parse_qs(parsed.query).get("format", ["markdown"])[0]
+                try:
+                    exported = callbacks.export_conversation(parts[2], format_name)
+                except LookupError:
+                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "conversation not found"}, include_body=include_body)
+                    return
+                except ValueError as error:
+                    self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)}, include_body=include_body)
+                    return
+                suffix = "json" if format_name == "json" else "md"
+                mime = "application/json; charset=utf-8" if suffix == "json" else "text/markdown; charset=utf-8"
+                self._send_bytes(
+                    HTTPStatus.OK,
+                    exported.encode("utf-8"),
+                    mime,
+                    include_body=include_body,
+                    extra_headers={"Content-Disposition": f'attachment; filename="lion-chat-{parts[2][:12]}.{suffix}"'},
                 )
                 return
             if path == "/api/projects" and callbacks is not None:
@@ -529,6 +566,7 @@ def _handler_type(
                 "/api/auth/logout",
                 "/api/settings",
                 "/api/provider-key",
+                "/api/providers",
                 "/api/conversations",
                 "/api/conversations/open",
                 "/api/projects",
@@ -681,6 +719,17 @@ def _handler_type(
                         self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
                         return
                     self._send_json(HTTPStatus.OK, callbacks.settings_snapshot())
+                    return
+                if path == "/api/providers":
+                    try:
+                        connection = callbacks.create_provider_connection(
+                            payload.get("display_name"), payload.get("base_url"),
+                            payload.get("models", []), payload.get("secret"),
+                        )
+                    except (TypeError, ValueError) as error:
+                        self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
+                        return
+                    self._send_json(HTTPStatus.CREATED, {"provider": connection})
                     return
                 if path == "/api/conversations":
                     title = payload.get("title", "New chat")
@@ -891,7 +940,7 @@ def _handler_type(
         def do_DELETE(self) -> None:
             path = urlsplit(self.path).path
             parts = path.strip("/").split("/")
-            valid_delete = len(parts) == 3 and parts[0] == "api" and parts[1] in ("turns", "projects", "attachments", "saved-prompts", "media", "recipes")
+            valid_delete = len(parts) == 3 and parts[0] == "api" and parts[1] in ("turns", "projects", "providers", "conversations", "attachments", "saved-prompts", "media", "recipes")
             mcp_delete = len(parts) == 4 and parts[:3] == ["api", "mcp", "connections"]
             if callbacks is None or not (valid_delete or mcp_delete):
                 self._method_not_allowed()
@@ -903,6 +952,10 @@ def _handler_type(
                     callbacks.cancel_turn(parts[2])
                 elif parts[1] == "projects":
                     callbacks.delete_project(parts[2])
+                elif parts[1] == "providers":
+                    callbacks.delete_provider_connection(parts[2])
+                elif parts[1] == "conversations":
+                    callbacks.delete_conversation(parts[2])
                 elif parts[1] == "attachments":
                     callbacks.delete_attachment(parts[2])
                 elif parts[1] == "saved-prompts":
@@ -916,6 +969,9 @@ def _handler_type(
             except LookupError:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "resource not found"})
                 return
+            except ValueError as error:
+                self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error)})
+                return
             except RuntimeError as error:
                 self._send_json(HTTPStatus.CONFLICT, {"error": str(error)})
                 return
@@ -923,6 +979,10 @@ def _handler_type(
                 self._send_json(HTTPStatus.ACCEPTED, {"turn_id": parts[2], "cancelled": True})
             elif parts[1] == "projects":
                 self._send_json(HTTPStatus.OK, {"project_id": parts[2], "deleted": True})
+            elif parts[1] == "providers":
+                self._send_json(HTTPStatus.OK, {"provider_id": parts[2], "deleted": True})
+            elif parts[1] == "conversations":
+                self._send_json(HTTPStatus.OK, {"conversation_id": parts[2], "deleted": True})
             elif parts[1] == "attachments":
                 self._send_json(HTTPStatus.OK, {"attachment_id": parts[2], "deleted": True})
             elif parts[1] == "saved-prompts":
@@ -938,8 +998,10 @@ def _handler_type(
             path = urlsplit(self.path).path
             parts = path.strip("/").split("/")
             project_put = len(parts) == 3 and parts[:2] == ["api", "projects"]
+            provider_put = len(parts) == 3 and parts[:2] == ["api", "providers"]
+            conversation_put = len(parts) == 3 and parts[:2] == ["api", "conversations"]
             mcp_put = len(parts) == 4 and parts[:3] == ["api", "mcp", "connections"]
-            if callbacks is None or not (project_put or mcp_put):
+            if callbacks is None or not (project_put or provider_put or conversation_put or mcp_put):
                 self._method_not_allowed()
                 return
             if not self._authorized() or not self._csrf_valid():
@@ -953,20 +1015,47 @@ def _handler_type(
                 if length < 0 or length > MAX_BODY_BYTES:
                     raise ValueError
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
-                name = payload.get("name") if isinstance(payload, dict) else None
-                if not isinstance(name, str):
+                if not isinstance(payload, dict):
                     raise ValueError
                 if project_put:
+                    name = payload.get("name")
+                    if not isinstance(name, str): raise ValueError
                     callbacks.rename_project(parts[2], name)
+                elif provider_put:
+                    connection = callbacks.update_provider_connection(
+                        parts[2], display_name=payload.get("display_name"),
+                        base_url=payload.get("base_url"), models=payload.get("models"),
+                        enabled=payload.get("enabled"), secret=payload.get("secret"),
+                        clear_secret=payload.get("clear_secret", False), revision=payload.get("revision"),
+                    )
+                elif conversation_put:
+                    supplied = [key for key in ("title", "pinned", "project_id", "archived") if key in payload]
+                    if len(supplied) != 1: raise ValueError
+                    field = supplied[0]; value = payload[field]
+                    if field == "title" and isinstance(value, str): callbacks.rename_conversation(parts[2], value)
+                    elif field == "pinned" and isinstance(value, bool): callbacks.pin_conversation(parts[2], value)
+                    elif field == "project_id" and (value is None or isinstance(value, str)): callbacks.assign_conversation_project(parts[2], value)
+                    elif field == "archived" and isinstance(value, bool): callbacks.archive_conversation(parts[2], value)
+                    else: raise ValueError
                 else:
+                    name = payload.get("name")
+                    if not isinstance(name, str): raise ValueError
                     callbacks.update_mcp(parts[3], name, payload.get("transport"), payload.get("config"), payload.get("enabled", True), payload.get("credential"), payload.get("clear_credential", False))
             except LookupError:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "resource not found"})
                 return
-            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-                self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": "valid update required"})
+            except RuntimeError as error:
+                self._send_json(HTTPStatus.CONFLICT, {"error": str(error)})
                 return
-            self._send_json(HTTPStatus.OK, {"id": parts[2] if project_put else parts[3], "name": name.strip()})
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                self._send_json(HTTPStatus.UNPROCESSABLE_ENTITY, {"error": str(error) if provider_put else "valid update required"})
+                return
+            if provider_put:
+                self._send_json(HTTPStatus.OK, {"provider": connection})
+            elif conversation_put:
+                self._send_json(HTTPStatus.OK, {"id": parts[2], "updated": supplied[0]})
+            else:
+                self._send_json(HTTPStatus.OK, {"id": parts[2] if project_put else parts[3], "name": name.strip()})
 
     return WebUiRequestHandler
 

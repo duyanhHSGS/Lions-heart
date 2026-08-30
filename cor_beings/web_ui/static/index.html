@@ -2,6 +2,7 @@
 TODO: Add richer media previews and recipe graph editing after the safe list/form UI is battle-tested.
 TODO: Connect Search, voice, and run settings after their product contracts exist.
 TODO: Add retry, edit, copy, and message-action controls on top of durable turns.
+TODO: Add keyboard drag-and-drop ordering if pinned chats outgrow priority sorting.
 TODO: Keep Web Search disabled until a dedicated product decision enables it.
 -->
 <!doctype html>
@@ -102,6 +103,10 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
         d="M19 13.5v-3l-2-.6-.7-1.7 1-1.8-2.1-2.1-1.8 1-1.7-.7L11 2H8l-.6 2.3-1.7.7-1.8-1-2 2.1 1 1.8-.7 1.7L0 10.5v3l2.2.6.7 1.7-1 1.8 2.1 2.1 1.8-1 1.7.7.6 2.3h3l.6-2.3 1.7-.7 1.8 1 2.1-2.1-1-1.8.7-1.7Z">
       </path>
     </symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="m14 4 6 6-3 1-4 4-1 5-2-2-2-2 5-1 4-4 1-3-6-6 8 2Z"></path></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 20h16"></path></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 7h16v13H4ZM3 3h18v4H3Zm6 8h6"></path></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6"></path></symbol>
   </svg>
 
   <div class="app-shell" id="app-shell">
@@ -296,8 +301,8 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
           <button class="settings-tab" data-settings-tab="about" type="button">About</button>
         </nav>
         <form id="settings-form">
-          <section class="settings-panel" data-settings-panel="general"><h2>General</h2><label>Default provider<select name="default_provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option></select></label><label>Retention days<input name="retention_days" type="number" min="1" max="3650"></label></section>
-          <section class="settings-panel" data-settings-panel="providers" hidden><h2>Providers</h2><p>Keys are encrypted on the server and never returned to this page.</p><div id="provider-key-fields"></div></section>
+          <section class="settings-panel" data-settings-panel="general"><h2>General</h2><label>Default provider<select name="default_provider" id="default-provider"></select></label><label>Retention days<input name="retention_days" type="number" min="1" max="3650"></label></section>
+          <section class="settings-panel" data-settings-panel="providers" hidden><h2>Providers</h2><p>Built-in and generic OpenAI-compatible connections use encrypted keys. Secrets are never returned to this page.</p><div id="provider-key-fields"></div><h3>Custom connections</h3><div class="provider-editor"><input id="provider-name" maxlength="80" placeholder="Friendly name, e.g. My Gateway"><input id="provider-base-url" maxlength="2048" inputmode="url" placeholder="https://api.example.com/v1"><input id="provider-models" maxlength="4000" placeholder="Model IDs, separated by commas"><input id="provider-secret" type="password" autocomplete="off" placeholder="API key"><button id="provider-add" type="button">Add provider</button></div><div id="provider-connections" class="provider-connections"></div></section>
           <section class="settings-panel" data-settings-panel="models" hidden><h2>Models</h2><label>Text model<input name="default_text_model" placeholder="Enter a remote model ID"></label><button id="discover-models" type="button">Discover models</button><div id="model-results"></div></section>
           <section class="settings-panel" data-settings-panel="appearance" hidden><h2>Appearance</h2><label>Theme<select name="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section>
           <section class="settings-panel" data-settings-panel="chat" hidden><h2>Chat</h2><label>System instructions<textarea name="system_prompt" rows="8"></textarea></label></section>
@@ -316,6 +321,18 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
   <section class="modal-backdrop" id="saved-prompts-modal" hidden aria-labelledby="saved-prompts-title"><div class="small-dialog" role="dialog" aria-modal="true"><header><h1 id="saved-prompts-title">Saved prompts</h1><button id="saved-prompts-close" type="button" aria-label="Close">×</button></header><input id="saved-prompts-search" placeholder="Search prompts"><div id="saved-prompts-list" class="resource-list"></div><form id="saved-prompt-form"><input name="name" maxlength="120" placeholder="Prompt name" required><textarea name="body" maxlength="32768" placeholder="Prompt text" required></textarea><button type="submit">Save prompt</button></form></div></section>
 
   <section class="modal-backdrop" id="workbench-modal" hidden aria-labelledby="workbench-title"><div class="small-dialog" role="dialog" aria-modal="true"><header><h1 id="workbench-title">Media</h1><button id="workbench-close" type="button" aria-label="Close">×</button></header><div id="workbench-list" class="resource-list" aria-live="polite"></div><form id="media-form"><input name="prompt" maxlength="20000" placeholder="What should Lion create?" required><input name="provider" maxlength="64" placeholder="Provider" required><input name="model" maxlength="160" placeholder="Model" required><label>Duration (audio/video)<input name="duration_seconds" type="number" min="1" max="120" value="5"></label><button type="submit">Create</button></form><form id="recipe-form" hidden><input name="name" maxlength="120" placeholder="Recipe name" required><textarea name="graph" required>{"steps":[{"id":"text","operation":"input","key":"text"}],"outputs":["text"]}</textarea><button type="submit">Save recipe</button></form></div></section>
+
+  <section class="modal-backdrop" id="chat-action-modal" hidden aria-labelledby="chat-action-title">
+    <form class="small-dialog chat-action-dialog" id="chat-action-form" role="dialog" aria-modal="true">
+      <header><div><span class="eyebrow">Chat options</span><h1 id="chat-action-title">Rename chat</h1></div><button id="chat-action-close" type="button" aria-label="Close">×</button></header>
+      <p id="chat-action-copy"></p>
+      <label id="chat-title-field">Chat name<input id="chat-title-input" maxlength="200" autocomplete="off" required></label>
+      <label id="chat-project-field" hidden>Destination<select id="chat-project-select"></select></label>
+      <label id="chat-new-project-field" hidden>New project name<input id="chat-new-project-input" maxlength="120" autocomplete="off" placeholder="My lion project"></label>
+      <p class="form-error" id="chat-action-error" role="alert"></p>
+      <footer><button id="chat-action-cancel" type="button">Cancel</button><button class="primary-action" id="chat-action-submit" type="submit">Save</button></footer>
+    </form>
+  </section>
 
   <section class="approval-drawer" id="approval-drawer" hidden aria-labelledby="approval-title"><div><h2 id="approval-title">Tool approval</h2><pre id="approval-details"></pre><p>Approval runs this exact call once.</p><button id="approval-reject" type="button">Reject</button><button id="approval-allow" class="primary-action" type="button">Allow once</button></div></section>
 

@@ -170,6 +170,17 @@ def test_conversation_fork_search_pin_archive_and_exports(platform: Platform) ->
         platform.session.export_conversation(fork, format="pdf")
 
 
+def test_conversation_rename_updates_search_atomically_and_bounds_title(platform: Platform) -> None:
+    conversation_id = platform.session.conversation_id
+    platform.session.rename_conversation(conversation_id, "  Jungle Plans  ")
+    assert platform.session.list_conversations()[0]["title"] == "Jungle Plans"
+    assert platform.session.search("Jungle")[0]["id"] == conversation_id
+    assert platform.session.search("New chat") == ()
+    with pytest.raises(ValueError, match="non-empty"):
+        platform.session.rename_conversation(conversation_id, "x" * 201)
+    assert platform.session.list_conversations()[0]["title"] == "Jungle Plans"
+
+
 class StreamingAgent:
     def __init__(self, gate: Event | None = None) -> None:
         self.gate = gate

@@ -15,7 +15,7 @@ from typing import Iterator, Sequence
 from cor_being import Being, Life, World
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class StorageBeing(Being):
@@ -358,6 +358,31 @@ class StorageBeing(Being):
                 COMMIT;
                 """
             )
+            current = 6
+        if current == 6:
+            connection.executescript(
+                """
+                BEGIN;
+                CREATE TABLE provider_connections (
+                    id TEXT PRIMARY KEY,
+                    protocol TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    base_url TEXT NOT NULL,
+                    models_json TEXT NOT NULL DEFAULT '[]',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    revision INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE UNIQUE INDEX provider_connections_name
+                    ON provider_connections(lower(display_name));
+                CREATE INDEX provider_connections_enabled
+                    ON provider_connections(enabled, created_at, id);
+                PRAGMA user_version = 7;
+                COMMIT;
+                """
+            )
+            # TODO: Add protocol-specific capability columns only after their contracts are stable.
 
     def _require_connection(self) -> sqlite3.Connection:
         if self._connection is None:

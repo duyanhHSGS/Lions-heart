@@ -188,14 +188,25 @@ class SessionBeing(Being):
         return tuple(dict(row) for row in rows)
 
     def rename_conversation(self, conversation_id: str, title: str) -> None:
-        if not isinstance(title, str) or not title.strip():
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
             raise ValueError("conversation title must be a non-empty string")
-        cursor = self._require_storage().execute(
-            "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
-            (title.strip(), int(time.time()), conversation_id),
-        )
-        if cursor.rowcount != 1:
-            raise LookupError("conversation not found")
+        clean = title.strip()
+        with self._require_storage().transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
+                (clean, int(time.time()), conversation_id),
+            )
+            if cursor.rowcount != 1:
+                raise LookupError("conversation not found")
+            connection.execute(
+                "DELETE FROM conversation_search WHERE conversation_id=? AND title<>''",
+                (conversation_id,),
+            )
+            connection.execute(
+                "INSERT INTO conversation_search(conversation_id,title,body) VALUES (?,?, '')",
+                (conversation_id, clean),
+            )
+        # TODO: Add optimistic revisions if chat metadata gains concurrent editors.
 
     def archive_conversation(self, conversation_id: str, *, archived: bool = True) -> None:
         cursor = self._require_storage().execute(

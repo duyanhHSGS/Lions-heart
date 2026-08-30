@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from threading import Thread, current_thread
 
 from cor_being import Being, Life, World
@@ -123,14 +124,24 @@ class WebUiBeing(Being):
             validate_csrf=auth.validate_csrf,
             logout=auth.logout,
             settings_snapshot=settings.public_snapshot,
-            update_settings=settings.update,
+            update_settings=self._update_settings,
             set_provider_key=settings.set_provider_key,
             delete_provider_key=settings.delete_provider_key,
             list_models=lambda name, refresh: providers.list_models(name, refresh=refresh),
+            list_provider_connections=providers.list_connections,
+            create_provider_connection=providers.create_connection,
+            update_provider_connection=providers.update_connection,
+            delete_provider_connection=providers.delete_connection,
             list_conversations=session.list_conversations,
             active_conversation=lambda: (session.conversation_id, session.temporary),
             new_conversation=self._new_conversation,
             open_conversation=self._open_conversation,
+            rename_conversation=session.rename_conversation,
+            pin_conversation=lambda conversation_id, pinned: session.pin_conversation(conversation_id, pinned=pinned),
+            assign_conversation_project=session.assign_project,
+            archive_conversation=lambda conversation_id, archived: session.archive_conversation(conversation_id, archived=archived),
+            delete_conversation=session.delete_conversation,
+            export_conversation=lambda conversation_id, format_name: session.export_conversation(conversation_id, format=format_name),
             list_projects=projects.list,
             create_project=lambda name, workspace: projects.create(name, workspace=workspace),
             rename_project=projects.rename,
@@ -273,6 +284,16 @@ class WebUiBeing(Being):
         for item in attachments.list(project_id=project_id):
             attachments.delete(str(item["id"]))
         projects.delete(project_id)
+
+    def _update_settings(self, changes: Mapping[str, object]) -> Mapping[str, object]:
+        settings = self._settings
+        providers = self._providers
+        if settings is None or providers is None:
+            raise RuntimeError("web UI is not alive")
+        selected = changes.get("default_provider")
+        if selected is not None and selected not in providers.names:
+            raise ValueError("default_provider must name an enabled provider")
+        return settings.update(changes)
 
     def _stop(self) -> None:
         server = self._server

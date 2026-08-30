@@ -16,6 +16,7 @@ from cor_beings.auth import AuthBeing
 from cor_beings.providers import (
     AnthropicProviderBeing,
     GeminiProviderBeing,
+    OpenAICompatibleProviderBeing,
     OpenAIProviderBeing,
     ProviderError,
     ProviderRegistryBeing,
@@ -279,6 +280,121 @@ def test_provider_requires_configured_key(tmp_path: Path) -> None:
     try:
         with pytest.raises(ProviderError, match="not configured"):
             tuple(provider.stream(request(), Event()))
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+def custom_registry(tmp_path: Path):
+    storage = StorageBeing(data_root=tmp_path / "custom-registry")
+    settings = SettingsBeing()
+    openai = OpenAIProviderBeing()
+    anthropic = AnthropicProviderBeing()
+    gemini = GeminiProviderBeing()
+    registry = ProviderRegistryBeing()
+    world = World(storage, settings, openai, anthropic, gemini, registry)
+    lives = [born(storage, world), born(settings, world), born(openai, world), born(anthropic, world), born(gemini, world), born(registry, world)]
+    return storage, settings, registry, lives
+
+
+def test_generic_provider_connection_crud_encrypts_and_activates(tmp_path: Path) -> None:
+    storage, settings, registry, lives = custom_registry(tmp_path)
+    try:
+        created = registry.create_connection("  My   Gateway  ", "https://gateway.example/v1/", ["fast", "fast", "smart"], "super-secret-key")
+        provider_id = str(created["id"])
+        assert created == {
+            "id": provider_id, "display_name": "My Gateway", "protocol": "openai_compatible",
+            "base_url": "https://gateway.example/v1", "models": ["fast", "smart"],
+            "enabled": True, "built_in": False, "revision": 1, "configured": True,
+        }
+        assert provider_id in registry.names
+        assert settings.provider_key(provider_id) == "super-secret-key"
+        row = storage.fetchone("SELECT ciphertext FROM provider_secrets WHERE provider=?", (provider_id,))
+        assert row is not None and b"super-secret-key" not in row["ciphertext"]
+
+        settings.update({"default_provider": provider_id})
+        updated = registry.update_connection(provider_id, display_name="Gateway 2", models=["smart"], enabled=False, clear_secret=True, revision=1)
+        assert updated["revision"] == 2
+        assert updated["enabled"] is False
+        assert provider_id not in registry.names
+        assert settings.provider_key(provider_id) is None
+        assert settings.values["default_provider"] == "openai"
+        with pytest.raises(RuntimeError, match="changed"):
+            registry.update_connection(provider_id, enabled=True, revision=1)
+
+        registry.delete_connection(provider_id)
+        assert all(item["id"] != provider_id for item in registry.list_connections())
+        with pytest.raises(LookupError):
+            registry.get(provider_id)
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+@pytest.mark.parametrize("url", ("http://example.com/v1", "https://user:pass@example.com", "https://127.0.0.1/v1", "https://example.com/v1?key=oops"))
+def test_generic_provider_rejects_unsafe_urls_before_persistence(tmp_path: Path, url: str) -> None:
+    storage, _settings, registry, lives = custom_registry(tmp_path)
+    try:
+        with pytest.raises(ValueError, match="base_url"):
+            registry.create_connection("Unsafe", url, [], None)
+        assert storage.fetchone("SELECT id FROM provider_connections") is None
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+def test_generic_provider_rejects_duplicate_names_and_bad_models(tmp_path: Path) -> None:
+    _storage, _settings, registry, lives = custom_registry(tmp_path)
+    try:
+        registry.create_connection("Gateway", "https://one.example/v1", [], None)
+        with pytest.raises(ValueError, match="already exists"):
+            registry.create_connection("gateway", "https://two.example/v1", [], None)
+        with pytest.raises(ValueError, match="model ID"):
+            registry.create_connection("Bad models", "https://two.example/v1", [""], None)
+        with pytest.raises(ValueError, match="built-in"):
+            registry.delete_connection("openai")
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+def test_openai_compatible_stream_normalizes_fragmented_tools_reasoning_and_usage(tmp_path: Path) -> None:
+    sse = """data: {"choices":[{"delta":{"content":"Hi","reasoning_content":"hmm","tool_calls":[{"index":0,"id":"call_","function":{"name":"re","arguments":"{\\"pa"}}]}}]}\n\ndata: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"1","function":{"name":"ad","arguments":"th\\":\\"x\\"}"}}]}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}\n\ndata: [DONE]\n\n"""
+
+    def handler(incoming: httpx.Request) -> httpx.Response:
+        assert incoming.url.path.endswith("/chat/completions")
+        assert incoming.headers["authorization"] == "Bearer test-secret"
+        payload = json.loads(incoming.content)
+        assert payload["messages"][0] == {"role": "system", "content": "Be Lion"}
+        assert payload["tools"][0]["function"]["name"] == "read"
+        return httpx.Response(200, text=sse, headers={"Content-Type": "text/event-stream"})
+
+    provider_id = "custom_test"
+    provider = OpenAICompatibleProviderBeing(provider_id, "https://test/v1", transport=httpx.MockTransport(handler))
+    lives = provider_world(tmp_path, provider, provider_id)
+    try:
+        events = tuple(provider.stream(request(provider_id), Event()))
+        assert [event.kind for event in events] == ["start", "text_delta", "reasoning_delta", "usage", "tool_call", "completed"]
+        tool = next(event for event in events if event.kind == "tool_call")
+        assert dict(tool.data) == {"id": "call_1", "name": "read", "arguments": '{"path":"x"}'}
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+def test_openai_compatible_connection_allows_an_explicitly_keyless_gateway(tmp_path: Path) -> None:
+    def handler(incoming: httpx.Request) -> httpx.Response:
+        assert "authorization" not in incoming.headers
+        return httpx.Response(200, text='data: {"choices":[{"delta":{"content":"keyless"}}]}\n\ndata: [DONE]\n\n')
+
+    storage = StorageBeing(data_root=tmp_path / "keyless")
+    settings = SettingsBeing()
+    provider = OpenAICompatibleProviderBeing("custom_keyless", "https://gateway.example/v1", transport=httpx.MockTransport(handler))
+    world = World(storage, settings, provider)
+    lives = [born(storage, world), born(settings, world), born(provider, world)]
+    try:
+        events = tuple(provider.stream(request("custom_keyless"), Event()))
+        assert next(event.data["text"] for event in events if event.kind == "text_delta") == "keyless"
     finally:
         for life in reversed(lives):
             life.die()

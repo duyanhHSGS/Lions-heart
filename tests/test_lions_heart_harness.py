@@ -173,6 +173,8 @@ def test_dependency_graph_is_explicit_and_tiny() -> None:
         OpenAIProviderBeing,
         AnthropicProviderBeing,
         GeminiProviderBeing,
+        StorageBeing,
+        SettingsBeing,
     )
     assert ModelGatewayBeing.needs == (ProviderRegistryBeing, SettingsBeing)
     assert ReadBeing.needs == (WorkspaceBeing,)
