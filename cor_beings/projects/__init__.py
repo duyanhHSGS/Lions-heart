@@ -60,7 +60,9 @@ class ProjectsBeing(Being):
             )
             if cursor.rowcount != 1:
                 raise LookupError("project not found")
-            connection.execute("DELETE FROM project_search WHERE project_id=?", (project_id,))
+            connection.execute(
+                "DELETE FROM project_search WHERE project_id=?", (project_id,)
+            )
             connection.execute(
                 "INSERT INTO project_search(project_id, name) VALUES (?, ?)",
                 (project_id, clean),
@@ -69,8 +71,12 @@ class ProjectsBeing(Being):
     def delete(self, project_id: str) -> None:
         storage = self._require_storage()
         with storage.transaction() as connection:
-            connection.execute("DELETE FROM project_search WHERE project_id=?", (project_id,))
-            cursor = connection.execute("DELETE FROM projects WHERE id=?", (project_id,))
+            connection.execute(
+                "DELETE FROM project_search WHERE project_id=?", (project_id,)
+            )
+            cursor = connection.execute(
+                "DELETE FROM projects WHERE id=?", (project_id,)
+            )
             if cursor.rowcount != 1:
                 raise LookupError("project not found")
 
@@ -91,7 +97,7 @@ class ProjectsBeing(Being):
         if workspace is None or workspace == "":
             return None
         if not isinstance(workspace, str):
-            raise ValueError("workspace must be a directory path")
+            raise TypeError("workspace must be a directory path")
         path = Path(workspace).resolve(strict=True)
         if not path.is_dir():
             raise ValueError("workspace must be a directory")

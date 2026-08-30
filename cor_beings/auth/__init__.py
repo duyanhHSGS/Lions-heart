@@ -11,7 +11,6 @@ from secrets import token_urlsafe
 from cor_being import Being, Life, World
 from cor_beings.storage import StorageBeing
 
-
 SESSION_SECONDS = 12 * 60 * 60
 SCRYPT_N = 2**14
 
@@ -41,7 +40,9 @@ class AuthBeing(Being):
 
     @property
     def setup_required(self) -> bool:
-        return self._require_storage().fetchone("SELECT id FROM owner WHERE id=1") is None
+        return (
+            self._require_storage().fetchone("SELECT id FROM owner WHERE id=1") is None
+        )
 
     def setup(self, username: str, password: str) -> AuthSession:
         username = self._validate_username(username)
@@ -63,12 +64,17 @@ class AuthBeing(Being):
             raise
         return self._create_session()
 
-    def login(self, username: str, password: str, *, remote: str = "local") -> AuthSession:
+    def login(
+        self, username: str, password: str, *, remote: str = "local"
+    ) -> AuthSession:
         self._check_rate_limit(remote)
         row = self._require_storage().fetchone(
             "SELECT username, password_hash, password_salt FROM owner WHERE id=1"
         )
-        supplied = self._password_hash(password if isinstance(password, str) else "", row["password_salt"] if row else b"0" * 16)
+        supplied = self._password_hash(
+            password if isinstance(password, str) else "",
+            row["password_salt"] if row else b"0" * 16,
+        )
         valid = bool(
             row
             and isinstance(username, str)
@@ -87,7 +93,8 @@ class AuthBeing(Being):
             return False
         now = int(time.time())
         row = self._require_storage().fetchone(
-            "SELECT expires_at FROM auth_sessions WHERE token_hash=?", (self._token_hash(token),)
+            "SELECT expires_at FROM auth_sessions WHERE token_hash=?",
+            (self._token_hash(token),),
         )
         return bool(row and int(row["expires_at"]) > now)
 
@@ -95,7 +102,8 @@ class AuthBeing(Being):
         if not token or not csrf_token:
             return False
         row = self._require_storage().fetchone(
-            "SELECT csrf_hash, expires_at FROM auth_sessions WHERE token_hash=?", (self._token_hash(token),)
+            "SELECT csrf_hash, expires_at FROM auth_sessions WHERE token_hash=?",
+            (self._token_hash(token),),
         )
         return bool(
             row
@@ -106,7 +114,8 @@ class AuthBeing(Being):
     def logout(self, token: str | None) -> None:
         if token:
             self._require_storage().execute(
-                "DELETE FROM auth_sessions WHERE token_hash=?", (self._token_hash(token),)
+                "DELETE FROM auth_sessions WHERE token_hash=?",
+                (self._token_hash(token),),
             )
 
     def refresh_csrf(self, token: str | None) -> str | None:
@@ -177,4 +186,4 @@ class AuthBeing(Being):
         self._failures.clear()
 
 
-__all__ = ["AuthBeing", "AuthSession", "SESSION_SECONDS"]
+__all__ = ["SESSION_SECONDS", "AuthBeing", "AuthSession"]

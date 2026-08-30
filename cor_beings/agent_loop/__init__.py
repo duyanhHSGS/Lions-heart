@@ -12,8 +12,8 @@ from cor_being import Being, Life, World
 from cor_beings.approval import ApprovalBeing
 from cor_beings.lion import ModelReply, ToolCall
 from cor_beings.model_gateway import ModelGatewayBeing
-from cor_beings.providers import ProviderEvent
 from cor_beings.prompt import PromptBeing
+from cor_beings.providers import ProviderEvent
 from cor_beings.session import SessionBeing
 from cor_beings.tool_shelf import ToolShelfBeing
 
@@ -22,7 +22,13 @@ class AgentLoopBeing(Being):
     """Drive one complete user turn without knowing concrete tool internals."""
 
     name = "agent_loop"
-    needs = (SessionBeing, PromptBeing, ToolShelfBeing, ModelGatewayBeing, ApprovalBeing)
+    needs = (
+        SessionBeing,
+        PromptBeing,
+        ToolShelfBeing,
+        ModelGatewayBeing,
+        ApprovalBeing,
+    )
 
     def __init__(self) -> None:
         self._session: SessionBeing | None = None
@@ -59,7 +65,11 @@ class AgentLoopBeing(Being):
     def run_turn(self, message: str, *, max_steps: int = 16) -> str:
         if not isinstance(message, str):
             raise TypeError("message must be a string")
-        if not isinstance(max_steps, int) or isinstance(max_steps, bool) or max_steps <= 0:
+        if (
+            not isinstance(max_steps, int)
+            or isinstance(max_steps, bool)
+            or max_steps <= 0
+        ):
             raise ValueError("max_steps must be a positive integer")
         conversation_id = self._active_conversation_id()
         with self._lock_for(conversation_id):
@@ -95,7 +105,9 @@ class AgentLoopBeing(Being):
 
         for _ in range(max_steps):
             if cancel.is_set():
-                self._session.append_to(conversation_id, "agent_cancelled", turn_id=turn_id)
+                self._session.append_to(
+                    conversation_id, "agent_cancelled", turn_id=turn_id
+                )
                 return ""
             reply = self._remote_reply(conversation_id, cancel=cancel, emit=emit)
             self._session.append_to(
@@ -110,7 +122,9 @@ class AgentLoopBeing(Being):
 
             for call in reply.tool_calls:
                 try:
-                    approval_id = self._approval.create(turn_id, call.name, call.arguments)
+                    approval_id = self._approval.create(
+                        turn_id, call.name, call.arguments
+                    )
                     if emit is not None:
                         emit(
                             ProviderEvent.make(
@@ -120,7 +134,9 @@ class AgentLoopBeing(Being):
                                 arguments=dict(call.arguments),
                             )
                         )
-                    decision = self._approval.wait_and_execute(approval_id, cancel=cancel)
+                    decision = self._approval.wait_and_execute(
+                        approval_id, cancel=cancel
+                    )
                 except Exception as error:
                     self._session.append_to(
                         conversation_id,
@@ -185,6 +201,7 @@ class AgentLoopBeing(Being):
         if not isinstance(message, str) or not message.strip():
             raise ValueError("message must be a non-empty string")
         trace: list[ProviderEvent] = []
+
         def publish(event: ProviderEvent) -> None:
             trace.append(event)
             if emit is not None:
@@ -215,7 +232,9 @@ class AgentLoopBeing(Being):
         messages: list[dict[str, object]] = []
         for event in self._session.events_for(conversation_id):
             if event.kind in ("user", "assistant"):
-                messages.append({"role": event.kind, "content": str(event.data.get("text", ""))})
+                messages.append(
+                    {"role": event.kind, "content": str(event.data.get("text", ""))}
+                )
             elif event.kind in ("tool_result", "tool_error"):
                 messages.append(
                     {
@@ -241,10 +260,14 @@ class AgentLoopBeing(Being):
                 try:
                     arguments = json.loads(str(raw))
                 except json.JSONDecodeError as error:
-                    raise RuntimeError("provider returned malformed tool arguments") from error
+                    raise RuntimeError(
+                        "provider returned malformed tool arguments"
+                    ) from error
                 if not isinstance(arguments, dict):
                     raise RuntimeError("provider tool arguments must be an object")
-                tool_calls.append(ToolCall(str(provider_event.data.get("name", "")), arguments))
+                tool_calls.append(
+                    ToolCall(str(provider_event.data.get("name", "")), arguments)
+                )
         return ModelReply("".join(text_parts), tuple(tool_calls))
 
     def _active_conversation_id(self) -> str:

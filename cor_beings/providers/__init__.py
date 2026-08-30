@@ -47,21 +47,25 @@ class ProviderEvent:
     data: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
     @classmethod
-    def make(cls, kind: str, **data: object) -> "ProviderEvent":
+    def make(cls, kind: str, **data: object) -> ProviderEvent:
         return cls(kind, MappingProxyType(data))
 
 
 class ProviderError(RuntimeError):
     """One normalized remote-provider failure safe for product boundaries."""
 
-    def __init__(self, provider: str, kind: str, message: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self, provider: str, kind: str, message: str, *, retryable: bool = False
+    ) -> None:
         super().__init__(message)
         self.provider = provider
         self.kind = kind
         self.retryable = retryable
 
 
-def _iter_sse(response: httpx.Response, cancel: Event) -> Iterator[tuple[str, dict[str, object]]]:
+def _iter_sse(
+    response: httpx.Response, cancel: Event
+) -> Iterator[tuple[str, dict[str, object]]]:
     event_name = "message"
     data_lines: list[str] = []
     for line in response.iter_lines():
@@ -76,7 +80,11 @@ def _iter_sse(response: httpx.Response, cancel: Event) -> Iterator[tuple[str, di
                 try:
                     payload = json.loads(raw)
                 except json.JSONDecodeError as error:
-                    raise ProviderError("remote", "malformed_stream", "provider sent malformed streaming JSON") from error
+                    raise ProviderError(
+                        "remote",
+                        "malformed_stream",
+                        "provider sent malformed streaming JSON",
+                    ) from error
                 if isinstance(payload, dict):
                     yield event_name, payload
             event_name = "message"
@@ -88,7 +96,11 @@ def _iter_sse(response: httpx.Response, cancel: Event) -> Iterator[tuple[str, di
         try:
             payload = json.loads("\n".join(data_lines))
         except json.JSONDecodeError as error:
-            raise ProviderError("remote", "malformed_stream", "provider ended with malformed streaming JSON") from error
+            raise ProviderError(
+                "remote",
+                "malformed_stream",
+                "provider ended with malformed streaming JSON",
+            ) from error
         if isinstance(payload, dict):
             yield event_name, payload
 
@@ -101,7 +113,12 @@ class RemoteProviderBeing(Being):
     base_url = ""
     capabilities = ProviderCapabilities()
 
-    def __init__(self, *, base_url: str | None = None, transport: httpx.BaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         self._configured_base_url = (base_url or self.base_url).rstrip("/")
         self._transport = transport
         self._settings: SettingsBeing | None = None
@@ -131,7 +148,11 @@ class RemoteProviderBeing(Being):
             raise RuntimeError(f"{self.provider_name} provider is not alive")
         key = self._settings.provider_key(self.provider_name)
         if not key:
-            raise ProviderError(self.provider_name, "not_configured", f"{self.provider_name} API key is not configured")
+            raise ProviderError(
+                self.provider_name,
+                "not_configured",
+                f"{self.provider_name} API key is not configured",
+            )
         return key
 
     def _require_client(self) -> httpx.Client:
@@ -151,12 +172,19 @@ class RemoteProviderBeing(Being):
             kind, retryable = "provider_unavailable", True
         else:
             kind, retryable = "bad_request", False
-        raise ProviderError(self.provider_name, kind, f"{self.provider_name} request failed with HTTP {status}", retryable=retryable)
+        raise ProviderError(
+            self.provider_name,
+            kind,
+            f"{self.provider_name} request failed with HTTP {status}",
+            retryable=retryable,
+        )
 
     def list_models(self) -> tuple[str, ...]:
         return ()
 
-    def stream(self, request: ProviderRequest, cancel: Event) -> Iterator[ProviderEvent]:
+    def stream(
+        self, request: ProviderRequest, cancel: Event
+    ) -> Iterator[ProviderEvent]:
         raise NotImplementedError
 
 
@@ -180,9 +208,17 @@ class OpenAIProviderBeing(RemoteProviderBeing):
         response = self._require_client().get("/models", headers=self._headers())
         self._raise_http(response)
         payload = response.json()
-        return tuple(sorted(item["id"] for item in payload.get("data", ()) if isinstance(item, dict) and isinstance(item.get("id"), str)))
+        return tuple(
+            sorted(
+                item["id"]
+                for item in payload.get("data", ())
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            )
+        )
 
-    def stream(self, request: ProviderRequest, cancel: Event) -> Iterator[ProviderEvent]:
+    def stream(
+        self, request: ProviderRequest, cancel: Event
+    ) -> Iterator[ProviderEvent]:
         body: dict[str, object] = {
             "model": request.model,
             "instructions": request.system or None,
@@ -194,19 +230,33 @@ class OpenAIProviderBeing(RemoteProviderBeing):
             body["tools"] = [
                 {"type": "function", **dict(tool)} for tool in request.tools
             ]
-        yield ProviderEvent.make("start", provider=self.provider_name, model=request.model)
+        yield ProviderEvent.make(
+            "start", provider=self.provider_name, model=request.model
+        )
         try:
-            with self._require_client().stream("POST", "/responses", headers=self._headers(), json=body) as response:
+            with self._require_client().stream(
+                "POST", "/responses", headers=self._headers(), json=body
+            ) as response:
                 self._raise_http(response)
                 for _name, payload in _iter_sse(response, cancel):
                     kind = payload.get("type")
-                    if kind == "response.output_text.delta" and isinstance(payload.get("delta"), str):
+                    if kind == "response.output_text.delta" and isinstance(
+                        payload.get("delta"), str
+                    ):
                         yield ProviderEvent.make("text_delta", text=payload["delta"])
-                    elif kind in ("response.reasoning_summary_text.delta", "response.reasoning_text.delta") and isinstance(payload.get("delta"), str):
-                        yield ProviderEvent.make("reasoning_delta", text=payload["delta"])
+                    elif kind in (
+                        "response.reasoning_summary_text.delta",
+                        "response.reasoning_text.delta",
+                    ) and isinstance(payload.get("delta"), str):
+                        yield ProviderEvent.make(
+                            "reasoning_delta", text=payload["delta"]
+                        )
                     elif kind == "response.output_item.done":
                         item = payload.get("item")
-                        if isinstance(item, dict) and item.get("type") == "function_call":
+                        if (
+                            isinstance(item, dict)
+                            and item.get("type") == "function_call"
+                        ):
                             yield ProviderEvent.make(
                                 "tool_call",
                                 id=str(item.get("call_id") or item.get("id") or ""),
@@ -215,10 +265,21 @@ class OpenAIProviderBeing(RemoteProviderBeing):
                             )
                     elif kind == "response.completed":
                         response_data = payload.get("response")
-                        usage = response_data.get("usage", {}) if isinstance(response_data, dict) else {}
-                        yield ProviderEvent.make("usage", **(usage if isinstance(usage, dict) else {}))
+                        usage = (
+                            response_data.get("usage", {})
+                            if isinstance(response_data, dict)
+                            else {}
+                        )
+                        yield ProviderEvent.make(
+                            "usage", **(usage if isinstance(usage, dict) else {})
+                        )
         except httpx.HTTPError as error:
-            raise ProviderError(self.provider_name, "network", "OpenAI network request failed", retryable=True) from error
+            raise ProviderError(
+                self.provider_name,
+                "network",
+                "OpenAI network request failed",
+                retryable=True,
+            ) from error
         if cancel.is_set():
             yield ProviderEvent.make("cancelled")
         else:
@@ -232,20 +293,34 @@ class AnthropicProviderBeing(RemoteProviderBeing):
     capabilities = ProviderCapabilities(image_input=True, reasoning_summaries=True)
 
     def _headers(self) -> dict[str, str]:
-        return {"x-api-key": self._key(), "anthropic-version": "2023-06-01", "Accept": "text/event-stream"}
+        return {
+            "x-api-key": self._key(),
+            "anthropic-version": "2023-06-01",
+            "Accept": "text/event-stream",
+        }
 
     def list_models(self) -> tuple[str, ...]:
         response = self._require_client().get("/v1/models", headers=self._headers())
         self._raise_http(response)
         payload = response.json()
-        return tuple(sorted(item["id"] for item in payload.get("data", ()) if isinstance(item, dict) and isinstance(item.get("id"), str)))
+        return tuple(
+            sorted(
+                item["id"]
+                for item in payload.get("data", ())
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            )
+        )
 
-    def stream(self, request: ProviderRequest, cancel: Event) -> Iterator[ProviderEvent]:
+    def stream(
+        self, request: ProviderRequest, cancel: Event
+    ) -> Iterator[ProviderEvent]:
         tools = [
             {
                 "name": tool.get("name"),
                 "description": tool.get("description", ""),
-                "input_schema": tool.get("parameters", {"type": "object", "properties": {}}),
+                "input_schema": tool.get(
+                    "parameters", {"type": "object", "properties": {}}
+                ),
             }
             for tool in request.tools
         ]
@@ -259,28 +334,55 @@ class AnthropicProviderBeing(RemoteProviderBeing):
         if tools:
             body["tools"] = tools
         tool_blocks: dict[int, dict[str, str]] = {}
-        yield ProviderEvent.make("start", provider=self.provider_name, model=request.model)
+        yield ProviderEvent.make(
+            "start", provider=self.provider_name, model=request.model
+        )
         try:
-            with self._require_client().stream("POST", "/v1/messages", headers=self._headers(), json=body) as response:
+            with self._require_client().stream(
+                "POST", "/v1/messages", headers=self._headers(), json=body
+            ) as response:
                 self._raise_http(response)
                 for _name, payload in _iter_sse(response, cancel):
                     kind = payload.get("type")
                     index = payload.get("index")
                     if kind == "content_block_start" and isinstance(index, int):
                         content = payload.get("content_block")
-                        if isinstance(content, dict) and content.get("type") == "tool_use":
-                            tool_blocks[index] = {"id": str(content.get("id", "")), "name": str(content.get("name", "")), "arguments": ""}
+                        if (
+                            isinstance(content, dict)
+                            and content.get("type") == "tool_use"
+                        ):
+                            tool_blocks[index] = {
+                                "id": str(content.get("id", "")),
+                                "name": str(content.get("name", "")),
+                                "arguments": "",
+                            }
                     elif kind == "content_block_delta":
                         delta = payload.get("delta")
                         if not isinstance(delta, dict):
                             continue
-                        if delta.get("type") == "text_delta" and isinstance(delta.get("text"), str):
+                        if delta.get("type") == "text_delta" and isinstance(
+                            delta.get("text"), str
+                        ):
                             yield ProviderEvent.make("text_delta", text=delta["text"])
-                        elif delta.get("type") == "thinking_delta" and isinstance(delta.get("thinking"), str):
-                            yield ProviderEvent.make("reasoning_delta", text=delta["thinking"])
-                        elif delta.get("type") == "input_json_delta" and isinstance(index, int) and index in tool_blocks:
-                            tool_blocks[index]["arguments"] += str(delta.get("partial_json", ""))
-                    elif kind == "content_block_stop" and isinstance(index, int) and index in tool_blocks:
+                        elif delta.get("type") == "thinking_delta" and isinstance(
+                            delta.get("thinking"), str
+                        ):
+                            yield ProviderEvent.make(
+                                "reasoning_delta", text=delta["thinking"]
+                            )
+                        elif (
+                            delta.get("type") == "input_json_delta"
+                            and isinstance(index, int)
+                            and index in tool_blocks
+                        ):
+                            tool_blocks[index]["arguments"] += str(
+                                delta.get("partial_json", "")
+                            )
+                    elif (
+                        kind == "content_block_stop"
+                        and isinstance(index, int)
+                        and index in tool_blocks
+                    ):
                         tool = tool_blocks.pop(index)
                         yield ProviderEvent.make("tool_call", **tool)
                     elif kind == "message_delta":
@@ -288,7 +390,12 @@ class AnthropicProviderBeing(RemoteProviderBeing):
                         if isinstance(usage, dict):
                             yield ProviderEvent.make("usage", **usage)
         except httpx.HTTPError as error:
-            raise ProviderError(self.provider_name, "network", "Anthropic network request failed", retryable=True) from error
+            raise ProviderError(
+                self.provider_name,
+                "network",
+                "Anthropic network request failed",
+                retryable=True,
+            ) from error
         yield ProviderEvent.make("cancelled" if cancel.is_set() else "completed")
 
 
@@ -312,9 +419,17 @@ class GeminiProviderBeing(RemoteProviderBeing):
         response = self._require_client().get("/v1beta/models", headers=self._headers())
         self._raise_http(response)
         payload = response.json()
-        return tuple(sorted(str(item["name"]).removeprefix("models/") for item in payload.get("models", ()) if isinstance(item, dict) and isinstance(item.get("name"), str)))
+        return tuple(
+            sorted(
+                str(item["name"]).removeprefix("models/")
+                for item in payload.get("models", ())
+                if isinstance(item, dict) and isinstance(item.get("name"), str)
+            )
+        )
 
-    def stream(self, request: ProviderRequest, cancel: Event) -> Iterator[ProviderEvent]:
+    def stream(
+        self, request: ProviderRequest, cancel: Event
+    ) -> Iterator[ProviderEvent]:
         body: dict[str, object] = {
             "model": request.model,
             "input": list(request.messages),
@@ -322,40 +437,78 @@ class GeminiProviderBeing(RemoteProviderBeing):
             "system_instruction": request.system,
         }
         if request.tools:
-            body["tools"] = [{"type": "function", **dict(tool)} for tool in request.tools]
+            body["tools"] = [
+                {"type": "function", **dict(tool)} for tool in request.tools
+            ]
         tool_blocks: dict[int, dict[str, str]] = {}
-        yield ProviderEvent.make("start", provider=self.provider_name, model=request.model)
+        yield ProviderEvent.make(
+            "start", provider=self.provider_name, model=request.model
+        )
         try:
-            with self._require_client().stream("POST", "/v1beta/interactions", headers=self._headers(), json=body) as response:
+            with self._require_client().stream(
+                "POST", "/v1beta/interactions", headers=self._headers(), json=body
+            ) as response:
                 self._raise_http(response)
                 for _name, payload in _iter_sse(response, cancel):
                     kind = payload.get("event_type") or payload.get("type")
                     index = payload.get("index")
                     if kind == "step.start" and isinstance(index, int):
                         step = payload.get("step")
-                        if isinstance(step, dict) and step.get("type") == "function_call":
-                            tool_blocks[index] = {"id": str(step.get("id", "")), "name": str(step.get("name", "")), "arguments": ""}
+                        if (
+                            isinstance(step, dict)
+                            and step.get("type") == "function_call"
+                        ):
+                            tool_blocks[index] = {
+                                "id": str(step.get("id", "")),
+                                "name": str(step.get("name", "")),
+                                "arguments": "",
+                            }
                     elif kind == "step.delta":
                         delta = payload.get("delta")
                         if not isinstance(delta, dict):
                             continue
-                        if delta.get("type") == "text" and isinstance(delta.get("text"), str):
+                        if delta.get("type") == "text" and isinstance(
+                            delta.get("text"), str
+                        ):
                             yield ProviderEvent.make("text_delta", text=delta["text"])
                         elif delta.get("type") == "thought_summary":
                             content = delta.get("content")
-                            if isinstance(content, dict) and isinstance(content.get("text"), str):
-                                yield ProviderEvent.make("reasoning_delta", text=content["text"])
-                        elif delta.get("type") == "arguments_delta" and isinstance(index, int) and index in tool_blocks:
-                            tool_blocks[index]["arguments"] += str(delta.get("arguments", ""))
-                    elif kind == "step.stop" and isinstance(index, int) and index in tool_blocks:
+                            if isinstance(content, dict) and isinstance(
+                                content.get("text"), str
+                            ):
+                                yield ProviderEvent.make(
+                                    "reasoning_delta", text=content["text"]
+                                )
+                        elif (
+                            delta.get("type") == "arguments_delta"
+                            and isinstance(index, int)
+                            and index in tool_blocks
+                        ):
+                            tool_blocks[index]["arguments"] += str(
+                                delta.get("arguments", "")
+                            )
+                    elif (
+                        kind == "step.stop"
+                        and isinstance(index, int)
+                        and index in tool_blocks
+                    ):
                         yield ProviderEvent.make("tool_call", **tool_blocks.pop(index))
                     elif kind == "interaction.completed":
                         interaction = payload.get("interaction")
-                        usage = interaction.get("usage", {}) if isinstance(interaction, dict) else {}
+                        usage = (
+                            interaction.get("usage", {})
+                            if isinstance(interaction, dict)
+                            else {}
+                        )
                         if isinstance(usage, dict):
                             yield ProviderEvent.make("usage", **usage)
         except httpx.HTTPError as error:
-            raise ProviderError(self.provider_name, "network", "Gemini network request failed", retryable=True) from error
+            raise ProviderError(
+                self.provider_name,
+                "network",
+                "Gemini network request failed",
+                retryable=True,
+            ) from error
         yield ProviderEvent.make("cancelled" if cancel.is_set() else "completed")
 
 

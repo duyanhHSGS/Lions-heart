@@ -10,8 +10,8 @@ from threading import Event, RLock
 from uuid import uuid4
 
 from cor_being import Being, Life, World
-from cor_beings.storage import StorageBeing
 from cor_beings.session import SessionBeing
+from cor_beings.storage import StorageBeing
 from cor_beings.tool_shelf import ToolShelfBeing
 
 
@@ -28,7 +28,9 @@ class ApprovalBeing(Being):
     name = "approval"
     needs = (StorageBeing, ToolShelfBeing, SessionBeing)
 
-    def __init__(self, *, expiry_seconds: int = 300, auto_approve_for_tests: bool = False) -> None:
+    def __init__(
+        self, *, expiry_seconds: int = 300, auto_approve_for_tests: bool = False
+    ) -> None:
         if expiry_seconds <= 0:
             raise ValueError("approval expiry must be positive")
         self._expiry_seconds = expiry_seconds
@@ -53,7 +55,9 @@ class ApprovalBeing(Being):
         life.on_death(self._stop)
         # TODO: Add owner-configurable approval expiry presets after usability testing.
 
-    def create(self, turn_id: str, tool_name: str, arguments: Mapping[str, object]) -> str:
+    def create(
+        self, turn_id: str, tool_name: str, arguments: Mapping[str, object]
+    ) -> str:
         storage, tools = self._require_alive()
         tools.get(tool_name)
         safe_arguments = _json_object(arguments)
@@ -78,7 +82,9 @@ class ApprovalBeing(Being):
                     approval_id,
                     turn_id,
                     tool_name,
-                    json.dumps(safe_arguments, ensure_ascii=False, separators=(",", ":")),
+                    json.dumps(
+                        safe_arguments, ensure_ascii=False, separators=(",", ":")
+                    ),
                     _risk_summary(tool_name, safe_arguments),
                     uuid4().hex,
                     now + self._expiry_seconds,
@@ -105,7 +111,11 @@ class ApprovalBeing(Being):
                 raise LookupError("approval not found")
             if row["status"] != "pending":
                 raise RuntimeError("approval was already decided")
-            status = "expired" if int(row["expires_at"]) <= now else ("approved" if approved else "rejected")
+            status = (
+                "expired"
+                if int(row["expires_at"]) <= now
+                else ("approved" if approved else "rejected")
+            )
             connection.execute(
                 "UPDATE approvals SET status=?, updated_at=? WHERE id=?",
                 (status, now, approval_id),
@@ -133,7 +143,9 @@ class ApprovalBeing(Being):
                 return ApprovalDecision(approval_id, False, "tool call cancelled")
             if status == "rejected":
                 self._drop_signal(approval_id)
-                return ApprovalDecision(approval_id, False, "owner denied this tool call")
+                return ApprovalDecision(
+                    approval_id, False, "owner denied this tool call"
+                )
             if status in ("cancelled", "expired"):
                 self._drop_signal(approval_id)
                 return ApprovalDecision(approval_id, False, f"tool approval {status}")
@@ -171,7 +183,11 @@ class ApprovalBeing(Being):
             raise
         storage.execute(
             "UPDATE approvals SET status='executed', result_json=?, updated_at=? WHERE id=?",
-            (json.dumps({"result": result}, ensure_ascii=False), int(time.time()), approval_id),
+            (
+                json.dumps({"result": result}, ensure_ascii=False),
+                int(time.time()),
+                approval_id,
+            ),
         )
         self._drop_signal(approval_id)
         return ApprovalDecision(approval_id, True, result)
@@ -239,7 +255,7 @@ def _json_object(value: Mapping[str, object]) -> dict[str, object]:
     except (TypeError, ValueError) as error:
         raise ValueError("tool arguments must be a JSON object") from error
     if not isinstance(decoded, dict):
-        raise ValueError("tool arguments must be a JSON object")
+        raise TypeError("tool arguments must be a JSON object")
     return decoded
 
 
@@ -250,7 +266,11 @@ def _risk_summary(tool_name: str, arguments: Mapping[str, object]) -> str:
         return f"Overwrites a file: {arguments.get('path', '(missing path)')}"
     if tool_name == "bash":
         argv = arguments.get("argv", ())
-        command = " ".join(str(part) for part in argv) if isinstance(argv, list) else str(argv)
+        command = (
+            " ".join(str(part) for part in argv)
+            if isinstance(argv, list)
+            else str(argv)
+        )
         return f"Runs a local command: {command[:240]}"
     return f"Runs tool {tool_name} with the shown arguments"
 

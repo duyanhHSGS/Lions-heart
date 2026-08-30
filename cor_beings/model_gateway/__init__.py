@@ -7,11 +7,11 @@ from threading import Event
 from types import MappingProxyType
 
 from cor_being import Being, Life, World
-from cor_beings.providers import ProviderEvent, ProviderRegistryBeing, ProviderRequest
-from cor_beings.settings import SettingsBeing
 from cor_beings.lion import LionBeing
 from cor_beings.prompt import PromptSnapshot
+from cor_beings.providers import ProviderEvent, ProviderRegistryBeing, ProviderRequest
 from cor_beings.session import SessionEvent
+from cor_beings.settings import SettingsBeing
 
 
 class ModelGatewayBeing(Being):
@@ -35,7 +35,9 @@ class ModelGatewayBeing(Being):
         life.on_death(self._forget)
         # TODO: Add future providers without teaching AgentLoopBeing their protocols.
 
-    def stream(self, request: ProviderRequest, cancel: Event | None = None) -> Iterator[ProviderEvent]:
+    def stream(
+        self, request: ProviderRequest, cancel: Event | None = None
+    ) -> Iterator[ProviderEvent]:
         registry = self._registry
         if registry is None or self._settings is None:
             raise RuntimeError("model gateway is not alive")
@@ -43,7 +45,9 @@ class ModelGatewayBeing(Being):
             return self._fake_stream(request, cancel or Event())
         return registry.get(request.provider).stream(request, cancel or Event())
 
-    def _fake_stream(self, request: ProviderRequest, cancel: Event) -> Iterator[ProviderEvent]:
+    def _fake_stream(
+        self, request: ProviderRequest, cancel: Event
+    ) -> Iterator[ProviderEvent]:
         fake = self._fake_provider
         if fake is None:
             return
@@ -72,7 +76,9 @@ class ModelGatewayBeing(Being):
             )
         yield ProviderEvent.make("completed")
 
-    def default_request(self, messages: tuple[dict[str, object], ...]) -> ProviderRequest:
+    def default_request(
+        self, messages: tuple[dict[str, object], ...]
+    ) -> ProviderRequest:
         if self._settings is None:
             raise RuntimeError("model gateway is not alive")
         values = self._settings.values
@@ -85,7 +91,10 @@ class ModelGatewayBeing(Being):
         normalized_messages = messages
         if self._fake_provider is None:
             normalized_messages = tuple(
-                {"role": message.get("role", "user"), "content": message.get("content", "")}
+                {
+                    "role": message.get("role", "user"),
+                    "content": message.get("content", ""),
+                }
                 for message in messages
             )
         return ProviderRequest(
