@@ -278,15 +278,19 @@ svg {
 }
 
 .chat-group + .chat-group { margin-top: 18px; }
-.chat-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; border-radius: 11px; }
+.chat-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; border-radius: 11px; transition: background-color 120ms ease; }
+.chat-row:hover,
+.chat-row:focus-within,
 .chat-row.active { background: var(--nav-surface-hover); }
 .chat-row .current-chat { min-width: 0; border-radius: 11px; padding-right: 4px; }
+.chat-row .current-chat:hover { background: transparent; }
 .chat-title-wrap { display: flex; min-width: 0; align-items: center; gap: 7px; }
 .chat-pin { flex: 0 0 auto; width: 13px; height: 13px; color: var(--primary); }
 .chat-options-trigger { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: var(--nav-fg-muted); background: transparent; cursor: pointer; opacity: 0; }
 .chat-row:hover .chat-options-trigger,
 .chat-options-trigger:focus-visible,
-.chat-options-trigger[aria-expanded="true"] { opacity: 1; background: var(--nav-surface-hover); color: var(--foreground); }
+.chat-options-trigger[aria-expanded="true"] { opacity: 1; color: var(--foreground); }
+/* TODO: Keep future row actions inside this parent-owned hover surface so pointer travel never flashes the sidebar through. */
 .chat-options-trigger svg { width: 16px; height: 16px; }
 .chat-options-menu { z-index: 60; top: 30px; right: 0; left: auto; width: 218px; padding: 6px; }
 .chat-options-menu button,

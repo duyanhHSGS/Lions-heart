@@ -362,6 +362,26 @@ def test_recent_conversations_have_no_fade_overlay(live_ui) -> None:
     assert "linear-gradient(to top, var(--sidebar), transparent)" not in stylesheet
 
 
+def test_chat_row_hover_surface_stays_continuous_across_actions(live_ui) -> None:
+    status, _headers, body = request(live_ui[0], "GET", "/styles.css")
+    stylesheet = body.decode("utf-8")
+
+    assert status == 200
+    assert ".chat-row:hover,\n.chat-row:focus-within,\n.chat-row.active { background: var(--nav-surface-hover); }" in stylesheet
+    assert ".chat-row .current-chat:hover { background: transparent; }" in stylesheet
+    assert "transition: background-color 120ms ease;" in stylesheet
+
+
+def test_chat_options_reveal_does_not_paint_a_second_hover_patch(live_ui) -> None:
+    status, _headers, body = request(live_ui[0], "GET", "/styles.css")
+    stylesheet = body.decode("utf-8")
+
+    assert status == 200
+    reveal_rule = stylesheet.split(".chat-row:hover .chat-options-trigger,", 1)[1].split("}", 1)[0]
+    assert "opacity: 1" in reveal_rule
+    assert "background:" not in reveal_rule
+
+
 @pytest.mark.parametrize(
     ("path", "content_type", "needle"),
     [
