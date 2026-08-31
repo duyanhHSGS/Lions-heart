@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import re
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
@@ -181,12 +182,51 @@ class RemoteProviderBeing(Being):
             kind, retryable = "provider_unavailable", True
         else:
             kind, retryable = "bad_request", False
+        detail = self._safe_error_message(response)
+        message = (
+            f"Provider returned: {detail}"
+            if detail
+            else f"{self.provider_name} request failed with HTTP {status}"
+        )
         raise ProviderError(
             self.provider_name,
             kind,
-            f"{self.provider_name} request failed with HTTP {status}",
+            message,
             retryable=retryable,
         )
+
+    def _safe_error_message(self, response: httpx.Response) -> str | None:
+        chunks: list[bytes] = []
+        size = 0
+        try:
+            for chunk in response.iter_bytes(chunk_size=4096):
+                size += len(chunk)
+                if size > 16_384:
+                    return None
+                chunks.append(chunk)
+            payload = json.loads(b"".join(chunks))
+        except (UnicodeDecodeError, ValueError, httpx.HTTPError, httpx.StreamError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        error = payload.get("error")
+        message = error.get("message") if isinstance(error, dict) else None
+        if not isinstance(message, str):
+            return None
+        clean = " ".join(message.split())
+        if not clean:
+            return None
+        secret = self._settings.provider_key(self.provider_name) if self._settings is not None else None
+        if secret:
+            clean = clean.replace(secret, "[redacted-secret]")
+        clean = re.sub(r"https?://\S+", "[redacted-url]", clean, flags=re.IGNORECASE)
+        clean = re.sub(
+            r"(?i)\b(?:bearer|api[_ -]?key|token)\s*[:=]?\s+[A-Za-z0-9._-]{6,}",
+            "[redacted-secret]",
+            clean,
+        )
+        # TODO: Extend only with audited structured error shapes; never expose arbitrary bodies.
+        return clean[:1000]
 
     def list_models(self) -> tuple[str, ...]:
         return ()

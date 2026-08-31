@@ -271,6 +271,78 @@ def test_provider_redacts_http_authentication_and_network_failures(tmp_path: Pat
             life.die()
 
 
+def test_provider_surfaces_bounded_structured_error_message(tmp_path: Path) -> None:
+    message = (
+        "No model loaded. Call POST /inference/load first. "
+        "Or enable Model auto-switch (Settings > API)."
+    )
+    provider = OpenAIProviderBeing(
+        base_url="https://test",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(400, json={"error": {"message": message}})
+        ),
+    )
+    lives = provider_world(tmp_path, provider, "openai")
+    try:
+        with pytest.raises(ProviderError) as captured:
+            tuple(provider.stream(request(), Event()))
+        assert captured.value.kind == "bad_request"
+        assert str(captured.value) == f"Provider returned: {message}"
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+def test_provider_redacts_secrets_and_urls_from_structured_error_message(tmp_path: Path) -> None:
+    provider = OpenAIProviderBeing(
+        base_url="https://test",
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "message": "API key test-secret failed at https://private.example/path"
+                    }
+                },
+            )
+        ),
+    )
+    lives = provider_world(tmp_path, provider, "openai")
+    try:
+        with pytest.raises(ProviderError) as captured:
+            tuple(provider.stream(request(), Event()))
+        text = str(captured.value)
+        assert "test-secret" not in text
+        assert "private.example" not in text
+        assert "[redacted-secret]" in text
+        assert "[redacted-url]" in text
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+def test_provider_rejects_oversized_or_unstructured_error_details(tmp_path: Path) -> None:
+    responses = iter(
+        (
+            httpx.Response(400, json={"error": {"message": "x" * 20_000}}),
+            httpx.Response(400, json={"secret": "never show me"}),
+        )
+    )
+    provider = OpenAIProviderBeing(
+        base_url="https://test",
+        transport=httpx.MockTransport(lambda _request: next(responses)),
+    )
+    lives = provider_world(tmp_path, provider, "openai")
+    try:
+        for _ in range(2):
+            with pytest.raises(ProviderError) as captured:
+                tuple(provider.stream(request(), Event()))
+            assert str(captured.value) == "openai request failed with HTTP 400"
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
 def test_provider_requires_configured_key(tmp_path: Path) -> None:
     storage = StorageBeing(data_root=tmp_path / "nokey")
     settings = SettingsBeing()

@@ -84,7 +84,10 @@ function textForEvent(event) {
   if (typeof data.text === "string" && data.text) return data.text;
   if (event.kind === "tool_result") return `${data.name || "tool"}\n${String(data.result ?? "")}`;
   if (event.kind === "tool_error") return `${data.name || "tool"}: ${data.error || "Error"}\n${data.message || ""}`;
-  if (event.kind === "agent_error") return `Agent stopped: ${data.error || "unknown error"}`;
+  if (event.kind === "agent_error") {
+    const error = String(data.error || "unknown error");
+    return error.startsWith("Provider returned:") ? error : `Agent stopped: ${error}`;
+  }
   return JSON.stringify(data, null, 2);
 }
 

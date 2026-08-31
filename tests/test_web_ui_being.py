@@ -606,6 +606,7 @@ def test_model_menu_uses_live_provider_readiness_instead_of_hard_coded_state(liv
     assert "failureMessage = `${data.message || \"Turn failed\"}${suffix}`" in controller
     assert 'messages.append(makeMessage({ kind: "agent_error"' in controller
     assert "selected · save settings" in controller
+    assert 'error.startsWith("Provider returned:")' in controller
 
 
 def test_generic_provider_api_rejects_unsafe_and_stale_updates(live_ui) -> None:
