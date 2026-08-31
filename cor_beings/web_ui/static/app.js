@@ -474,7 +474,7 @@ function fillSettings(snapshot, connections = providerConnections) {
     const field = settingsForm.elements.namedItem(name);
     if (field) field.value = value;
   }
-  $("#active-model-label").textContent = values.default_text_model || "Configure provider";
+  renderActiveModel(values, connections, snapshot.providers || {});
   applyTheme(values.theme || "system");
   const keyFields = $("#provider-key-fields");
   keyFields.replaceChildren();
@@ -492,6 +492,30 @@ function fillSettings(snapshot, connections = providerConnections) {
   }
   const custom = $("#provider-connections"); custom.replaceChildren();
   for (const connection of connections.filter((item) => !item.built_in)) custom.append(providerConnectionCard(connection));
+}
+
+function renderActiveModel(values, connections, providerStates) {
+  const providerId = String(values.default_provider || "");
+  const connection = connections.find((item) => item.id === providerId && item.enabled);
+  const declaredModels = connection && Array.isArray(connection.models) ? connection.models : [];
+  const savedModel = String(values.default_text_model || "").trim();
+  const model = savedModel || (declaredModels.length === 1 ? String(declaredModels[0]) : "");
+  const providerName = connection ? connection.display_name : providerId || "Provider";
+  const state = providerStates[providerId] || {};
+  const providerReady = Boolean(connection && (!connection.built_in || state.configured));
+  const ready = Boolean(providerReady && model);
+  $("#active-model-label").textContent = model || (providerReady ? "Choose a model" : "Configure provider");
+  $("#active-model-menu-label").firstChild.textContent = model || (providerReady ? "Model not selected" : "Provider not ready");
+  $("#active-model-menu-detail").textContent = ready
+    ? `${providerName} · Ready`
+    : providerReady
+      ? `${providerName} is configured · choose a model`
+      : connection
+        ? `${providerName} needs an API key`
+        : "Choose an enabled provider in Settings";
+  $("#active-model-ready").hidden = !ready;
+  $("#active-model-summary").dataset.ready = String(ready);
+  // TODO: Add a keyboard model picker here after model catalogs gain a persisted freshness signal.
 }
 
 async function loadSettings() {
@@ -598,6 +622,7 @@ $("#provider-add").addEventListener("click", async () => {
 });
 $("#settings-open").addEventListener("click", () => void openSettings());
 $("#run-settings").addEventListener("click", () => void openSettings("models"));
+$("#model-menu-configure").addEventListener("click", () => void openSettings("models"));
 $("#temporary-chat").addEventListener("click", async () => {
   const payload = await apiFetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "Temporary chat", temporary: true }) });
   currentConversationId = payload.id;

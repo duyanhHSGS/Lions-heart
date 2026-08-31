@@ -573,6 +573,24 @@ def test_generic_provider_api_and_settings_ui_cover_full_crud(live_ui) -> None:
     assert 'apiFetch("/api/providers"' in controller
 
 
+def test_model_menu_uses_live_provider_readiness_instead_of_hard_coded_state(live_ui) -> None:
+    ui = live_ui[0]
+    _, _, html = request(ui, "GET", "/index.html")
+    _, _, script = request(ui, "GET", "/app.js")
+    page = html.decode("utf-8")
+    controller = script.decode("utf-8")
+
+    assert 'id="active-model-menu-label"' in page
+    assert 'id="active-model-menu-detail"' in page
+    assert 'id="active-model-ready" hidden' in page
+    assert ">Not configured<" not in page
+    assert "renderActiveModel(values, connections, snapshot.providers || {})" in controller
+    assert "!connection.built_in || state.configured" in controller
+    assert "declaredModels.length === 1" in controller
+    assert '$("#active-model-ready").hidden = !ready' in controller
+    assert '$("#model-menu-configure").addEventListener' in controller
+
+
 def test_generic_provider_api_rejects_unsafe_and_stale_updates(live_ui) -> None:
     ui = live_ui[0]
     status, payload = json_request(ui, {"changes": {"default_provider": "missing_provider"}}, path="/api/settings")

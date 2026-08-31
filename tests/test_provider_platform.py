@@ -331,6 +331,75 @@ def test_generic_provider_connection_crud_encrypts_and_activates(tmp_path: Path)
             life.die()
 
 
+def test_selecting_custom_provider_infers_its_only_declared_model(tmp_path: Path) -> None:
+    _storage, settings, registry, lives = custom_registry(tmp_path)
+    try:
+        created = registry.create_connection(
+            "One Model", "https://one.example/v1", ["sloth"], "secret"
+        )
+        values = settings.update(
+            {"default_provider": created["id"], "default_text_model": ""}
+        )
+        assert values["default_provider"] == created["id"]
+        assert values["default_text_model"] == "sloth"
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+def test_selecting_custom_provider_never_guesses_between_multiple_models(tmp_path: Path) -> None:
+    _storage, settings, registry, lives = custom_registry(tmp_path)
+    try:
+        created = registry.create_connection(
+            "Many Models", "https://many.example/v1", ["fast", "smart"], None
+        )
+        values = settings.update(
+            {"default_provider": created["id"], "default_text_model": ""}
+        )
+        assert values["default_text_model"] == ""
+    finally:
+        for life in reversed(lives):
+            life.die()
+
+
+def test_settings_birth_repairs_existing_single_model_provider_selection(tmp_path: Path) -> None:
+    data_root = tmp_path / "custom-registry"
+    storage, _settings, registry, lives = custom_registry(tmp_path)
+    created = registry.create_connection(
+        "Existing Provider", "https://existing.example/v1", ["only-model"], None
+    )
+    storage.execute(
+        "INSERT INTO settings(key,value_json,updated_at) VALUES (?,?,0) "
+        "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+        ("default_provider", json.dumps(created["id"])),
+    )
+    storage.execute(
+        "INSERT INTO settings(key,value_json,updated_at) VALUES (?,?,0) "
+        "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+        ("default_text_model", json.dumps("")),
+    )
+    for life in reversed(lives):
+        life.die()
+
+    replacement_storage = StorageBeing(data_root=data_root)
+    replacement_settings = SettingsBeing()
+    replacement_world = World(replacement_storage, replacement_settings)
+    replacement_lives = [
+        born(replacement_storage, replacement_world),
+        born(replacement_settings, replacement_world),
+    ]
+    try:
+        assert replacement_settings.values["default_provider"] == created["id"]
+        assert replacement_settings.values["default_text_model"] == "only-model"
+        row = replacement_storage.fetchone(
+            "SELECT value_json FROM settings WHERE key='default_text_model'"
+        )
+        assert row is not None and json.loads(row["value_json"]) == "only-model"
+    finally:
+        for life in reversed(replacement_lives):
+            life.die()
+
+
 @pytest.mark.parametrize("url", ("http://example.com/v1", "https://user:pass@example.com", "https://127.0.0.1/v1", "https://example.com/v1?key=oops"))
 def test_generic_provider_rejects_unsafe_urls_before_persistence(tmp_path: Path, url: str) -> None:
     storage, _settings, registry, lives = custom_registry(tmp_path)

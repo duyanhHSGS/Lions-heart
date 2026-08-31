@@ -48,6 +48,14 @@ class SettingsBeing(Being):
             if row["key"] in DEFAULTS:
                 values[row["key"]] = json.loads(row["value_json"])
         self._validate(values)
+        inferred_model = self._sole_custom_model(storage, values)
+        if inferred_model is not None:
+            values["default_text_model"] = inferred_model
+            storage.execute(
+                "INSERT INTO settings(key, value_json, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+                ("default_text_model", json.dumps(inferred_model), int(time.time())),
+            )
         self._storage = storage
         self._values = values
         life.on_death(self._forget)
@@ -79,12 +87,17 @@ class SettingsBeing(Being):
         unknown = set(changes) - set(DEFAULTS)
         if unknown:
             raise ValueError(f"unknown setting: {sorted(unknown)[0]}")
-        merged = {**self._values, **changes}
+        effective_changes = dict(changes)
+        merged = {**self._values, **effective_changes}
         self._validate(merged)
         storage = self._require_storage()
+        inferred_model = self._sole_custom_model(storage, merged)
+        if inferred_model is not None:
+            merged["default_text_model"] = inferred_model
+            effective_changes["default_text_model"] = inferred_model
         now = int(time.time())
         with storage.transaction() as connection:
-            for key, value in changes.items():
+            for key, value in effective_changes.items():
                 connection.execute(
                     "INSERT INTO settings(key, value_json, updated_at) VALUES (?, ?, ?) "
                     "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
@@ -92,6 +105,27 @@ class SettingsBeing(Being):
                 )
         self._values = merged
         return self.values
+
+    @staticmethod
+    def _sole_custom_model(storage: StorageBeing, values: Mapping[str, object]) -> str | None:
+        model = values.get("default_text_model")
+        provider = values.get("default_provider")
+        if not isinstance(model, str) or model.strip() or not isinstance(provider, str):
+            return None
+        row = storage.fetchone(
+            "SELECT models_json FROM provider_connections WHERE id=? AND enabled=1",
+            (provider,),
+        )
+        if row is None:
+            return None
+        try:
+            models = json.loads(row["models_json"])
+        except (TypeError, ValueError):
+            return None
+        if isinstance(models, list) and len(models) == 1 and isinstance(models[0], str) and models[0]:
+            return models[0]
+        # TODO: Never guess among multiple models; require an explicit owner choice.
+        return None
 
     def set_provider_key(self, provider: str, secret: str) -> None:
         provider = self._provider_id(provider)

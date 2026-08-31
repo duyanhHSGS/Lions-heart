@@ -192,9 +192,10 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
               <use href="#i-chevron"></use>
             </svg></button>
           <div class="popup model-menu" id="model-menu" hidden><strong>Remote model</strong><button type="button"
-              class="selected"><span class="model-dot">L</span><span>Not configured<small>Open Settings for a remote
-                  model</small></span><span>✓</span></button><button class="todo-control" type="button"
-              data-todo="Open Settings to configure a provider model">Configure provider</button></div>
+              class="selected" id="active-model-summary"><span class="model-dot">L</span><span
+                id="active-model-menu-label">Checking configuration<small id="active-model-menu-detail">Loading saved
+                  provider settings</small></span><span id="active-model-ready" hidden>✓</span></button><button
+              id="model-menu-configure" type="button">Configure provider</button></div>
         </div>
         <div class="header-actions"><button class="header-icon todo-control" type="button"
             data-todo="Context usage needs model token accounting" aria-label="Context usage"><span
