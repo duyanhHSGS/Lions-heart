@@ -328,6 +328,7 @@ async function consumeTurn(turnId) {
   let assistantCard = null;
   let assistantText = "";
   let paintQueued = false;
+  let failureMessage = "";
   const paint = () => {
     paintQueued = false;
     if (assistantCard) assistantCard.replaceChildren(renderMarkdownSubset(assistantText));
@@ -365,12 +366,15 @@ async function consumeTurn(turnId) {
         } else if (["turn_completed", "turn_cancelled", "turn_failed"].includes(kind)) {
           finished = true;
         } else if (kind === "normalized_error") {
-          showToast(data.message || "Turn failed");
+          const suffix = data.provider_error_kind ? ` (${data.provider_error_kind})` : "";
+          failureMessage = `${data.message || "Turn failed"}${suffix}`;
+          showToast(failureMessage);
         }
       }
       if (done) break;
     }
   }
+  return failureMessage;
 }
 
 async function sendMessage(message) {
@@ -379,6 +383,7 @@ async function sendMessage(message) {
   sendButton.disabled = false;
   sendButton.setAttribute("aria-label", "Stop response");
   closeMenus();
+  let failureMessage = "";
   try {
     if (!currentConversationId) await loadSession();
     const payload = await apiFetch(`/api/sessions/${encodeURIComponent(currentConversationId)}/turns`, {
@@ -387,11 +392,15 @@ async function sendMessage(message) {
       body: JSON.stringify({ message }),
     });
     activeTurnId = payload.turn_id;
-    await consumeTurn(activeTurnId);
-  } catch (error) { showToast(`Turn failed · ${error.message}`); }
+    failureMessage = await consumeTurn(activeTurnId);
+  } catch (error) {
+    failureMessage = `Turn failed · ${error.message}`;
+    showToast(failureMessage);
+  }
   finally {
     activeTurnId = "";
     await loadSession();
+    if (failureMessage) messages.append(makeMessage({ kind: "agent_error", data: { error: failureMessage } }));
     await loadConversations();
     busy = false;
     input.disabled = false;
@@ -709,7 +718,10 @@ $("#discover-models").addEventListener("click", async () => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = model;
-      button.addEventListener("click", () => { settingsForm.elements.namedItem("default_text_model").value = model; });
+      button.addEventListener("click", () => {
+        settingsForm.elements.namedItem("default_text_model").value = model;
+        showToast(`${model} selected · save settings`);
+      });
       results.append(button);
     });
   } catch (error) { results.textContent = error.message; }

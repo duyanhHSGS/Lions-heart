@@ -12,7 +12,7 @@ from cor_beings.agent_loop import AgentLoopBeing
 from cor_beings.approval import ApprovalBeing
 from cor_beings.bash import BashBeing
 from cor_beings.edit import EditBeing
-from cor_beings.providers import ProviderEvent
+from cor_beings.providers import ProviderError, ProviderEvent
 from cor_beings.projects import ProjectsBeing
 from cor_beings.read import ReadBeing
 from cor_beings.session import SessionBeing
@@ -208,6 +208,16 @@ class FailingAgent:
         raise RuntimeError("kaboom")
 
 
+class ProviderFailingAgent:
+    def stream_turn(
+        self, _message: str, *, turn_id: str, cancel: Event, emit, conversation_id: str
+    ) -> None:
+        emit(ProviderEvent.make("start", provider="custom", model="missing"))
+        raise ProviderError(
+            "custom", "bad_request", "custom request failed with HTTP 400"
+        )
+
+
 def _turn_manager(platform: Platform, agent: object) -> tuple[TurnManagerBeing, Life]:
     manager = TurnManagerBeing()
     world = World(*platform.beings, agent=agent)
@@ -266,6 +276,27 @@ def test_failed_turn_emits_normalized_error_and_persists_terminal_status(platfor
     }
     assert row is not None
     assert dict(row) == {"status": "failed", "error_kind": "RuntimeError"}
+    life.die()
+
+
+def test_provider_failure_preserves_only_safe_actionable_error_details(platform: Platform) -> None:
+    manager, life = _turn_manager(platform, ProviderFailingAgent())
+    turn_id = manager.create(platform.session.conversation_id, "hello")
+
+    events = _wait_terminal(manager, turn_id)
+    error_event = next(event for event in events if event["kind"] == "normalized_error")
+    row = platform.storage.fetchone(
+        "SELECT status, error_kind FROM turns WHERE id=?", (turn_id,)
+    )
+
+    assert error_event["data"] == {
+        "error_kind": "ProviderError",
+        "provider_error_kind": "bad_request",
+        "retryable": False,
+        "message": "custom request failed with HTTP 400",
+    }
+    assert row is not None
+    assert dict(row) == {"status": "failed", "error_kind": "ProviderError:bad_request"}
     life.die()
 
 

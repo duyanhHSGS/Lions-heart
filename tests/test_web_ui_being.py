@@ -603,6 +603,9 @@ def test_model_menu_uses_live_provider_readiness_instead_of_hard_coded_state(liv
     assert "declaredModels.length === 1" in controller
     assert '$("#active-model-ready").hidden = !ready' in controller
     assert '$("#model-menu-configure").addEventListener' in controller
+    assert "failureMessage = `${data.message || \"Turn failed\"}${suffix}`" in controller
+    assert 'messages.append(makeMessage({ kind: "agent_error"' in controller
+    assert "selected · save settings" in controller
 
 
 def test_generic_provider_api_rejects_unsafe_and_stale_updates(live_ui) -> None:

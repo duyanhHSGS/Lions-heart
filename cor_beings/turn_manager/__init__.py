@@ -12,7 +12,7 @@ from uuid import uuid4
 from cor_being import Being, Life, World
 from cor_beings.agent_loop import AgentLoopBeing
 from cor_beings.approval import ApprovalBeing
-from cor_beings.providers import ProviderEvent
+from cor_beings.providers import ProviderError, ProviderEvent
 from cor_beings.session import SessionBeing
 from cor_beings.storage import StorageBeing
 
@@ -124,13 +124,22 @@ class TurnManagerBeing(Being):
                 self._set_status(job, "completed")
         except Exception as error:  # noqa: BLE001 - normalize the background boundary.
             error_kind = type(error).__name__
+            message = "turn failed; inspect provider and approval settings"
+            error_data: dict[str, object] = {"error_kind": error_kind}
+            if isinstance(error, ProviderError):
+                error_kind = f"ProviderError:{error.kind}"
+                message = str(error)
+                error_data.update(
+                    provider_error_kind=error.kind,
+                    retryable=error.retryable,
+                )
             try:
                 self._publish(
                     job,
                     ProviderEvent.make(
                         "normalized_error",
-                        error_kind=error_kind,
-                        message="turn failed; inspect provider and approval settings",
+                        **error_data,
+                        message=message,
                     ),
                 )
                 self._publish(job, ProviderEvent.make("turn_failed", turn_id=job.turn_id))
