@@ -70,7 +70,9 @@ class AgentLoopBeing(Being):
         with self._locks_guard:
             self._conversation_locks.clear()
 
-    def run_turn(self, message: str, *, max_steps: int = 16) -> str:
+    def run_turn(
+        self, message: str, *, max_steps: int = 16, cancel: Event | None = None
+    ) -> str:
         if not isinstance(message, str):
             raise TypeError("message must be a string")
         if (
@@ -85,7 +87,7 @@ class AgentLoopBeing(Being):
                 message,
                 max_steps=max_steps,
                 turn_id=f"blocking-{uuid4().hex}",
-                cancel=Event(),
+                cancel=cancel or Event(),
                 conversation_id=conversation_id,
             )
 

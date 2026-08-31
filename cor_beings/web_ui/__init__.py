@@ -298,6 +298,11 @@ class WebUiBeing(Being):
     def _stop(self) -> None:
         server = self._server
         thread = self._thread
+        turns = self._turns
+        if server is not None:
+            server.begin_shutdown()
+        if turns is not None:
+            turns.begin_shutdown()
         self._server = None
         self._thread = None
         self._agent = None

@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import subprocess
 import sys
+import time
 from io import StringIO
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -735,6 +736,38 @@ def test_console_thread_cleanup_is_idempotent(harness: Harness) -> None:
     life.die()
     life.die()
 
+    assert not thread.is_alive()
+
+
+def test_console_shutdown_has_bounded_wait_when_active_runner_is_stuck() -> None:
+    entered = Event()
+    release = Event()
+    observed_cancel: list[Event | None] = []
+    life = Life("cli-bounded-shutdown")
+
+    class StuckRunner:
+        def run_once(self, _message: str, *, write=print, cancel: Event | None = None) -> str:
+            del write
+            observed_cancel.append(cancel)
+            entered.set()
+            release.wait(timeout=2)
+            return "late"
+
+    thread = start_console_thread(
+        StuckRunner(),  # type: ignore[arg-type]
+        life,
+        read=lambda _prompt, _stop: "go",
+    )
+    assert entered.wait(timeout=1)
+    started = time.monotonic()
+    life.die()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0
+    assert observed_cancel and observed_cancel[0] is not None
+    assert observed_cancel[0].is_set()
+    release.set()
+    thread.join(timeout=1)
     assert not thread.is_alive()
 
 

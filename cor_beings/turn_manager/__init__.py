@@ -247,17 +247,17 @@ class TurnManagerBeing(Being):
         return self._session, self._storage
 
     def _stop(self) -> None:
-        self._stopping.set()
+        self.begin_shutdown()
         with self._lock:
             jobs = tuple(self._jobs.values())
-        for job in jobs:
-            job.cancel.set()
-            with job.condition:
-                job.condition.notify_all()
+        deadline = time.monotonic() + 2.0
         for job in jobs:
             thread = job.thread
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             if thread is not None and thread.ident is not None and thread is not current_thread():
-                thread.join(timeout=5.0)
+                thread.join(timeout=remaining)
         with self._lock:
             self._jobs.clear()
             self._active_by_conversation.clear()
@@ -266,6 +266,17 @@ class TurnManagerBeing(Being):
         self._session = None
         self._storage = None
         self._approval = None
+
+    def begin_shutdown(self) -> None:
+        """Signal every worker without waiting, so transports can unwind concurrently."""
+        self._stopping.set()
+        with self._lock:
+            jobs = tuple(self._jobs.values())
+        for job in jobs:
+            job.cancel.set()
+            with job.condition:
+                job.condition.notify_all()
+        # TODO: Replace the bounded grace period with provider-native request cancellation where available.
 
 
 def _json_safe(value: object) -> object:

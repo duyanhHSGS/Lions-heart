@@ -14,7 +14,13 @@ from cor_being import Life
 class CliRunner(Protocol):
     """Small shape required by the interactive terminal adapter."""
 
-    def run_once(self, message: str, *, write: Callable[[str], object] = print) -> str: ...
+    def run_once(
+        self,
+        message: str,
+        *,
+        write: Callable[[str], object] = print,
+        cancel: Event | None = None,
+    ) -> str: ...
 
 
 ConsoleRead = Callable[[str, Event], str]
@@ -137,7 +143,7 @@ def _run_console(
             return
         if stop.is_set():
             return
-        cli.run_once(message, write=write)
+        cli.run_once(message, write=write, cancel=stop)
 
 
 def run_console(
@@ -177,13 +183,12 @@ def start_console_thread(
     def stop_console() -> None:
         stop.set()
         if thread.ident is not None and thread is not current_thread():
-            thread.join()
+            thread.join(timeout=0.5)
 
     life.on_death(stop_console)
     thread.start()
 
-    # TODO: Add optional history-aware line editing without sacrificing
-    # cancellation or Life-owned thread joining.
+    # TODO: Add optional history-aware line editing without sacrificing prompt cancellation.
     return thread
 
 

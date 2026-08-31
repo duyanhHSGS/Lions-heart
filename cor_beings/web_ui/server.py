@@ -12,7 +12,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -107,6 +107,14 @@ class WebUiHttpServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = False
     block_on_close = True
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        self.shutdown_requested = Event()
+        super().__init__(*args, **kwargs)
+
+    def begin_shutdown(self) -> None:
+        """Tell long-lived request handlers to leave before socket close joins them."""
+        self.shutdown_requested.set()
 
 
 def _load_static_assets() -> dict[str, StaticAsset]:
@@ -525,7 +533,7 @@ def _handler_type(
                 return
             sequence = after
             try:
-                while True:
+                while not self.server.shutdown_requested.is_set():  # type: ignore[attr-defined]
                     events, status = callbacks.turn_events(turn_id, sequence)
                     for event in events:
                         sequence = int(event["sequence"])
@@ -537,6 +545,8 @@ def _handler_type(
                     if status in TERMINAL_STATUSES:
                         break
                     callbacks.wait_for_turn_events(turn_id, sequence, 10.0)
+                    if self.server.shutdown_requested.is_set():  # type: ignore[attr-defined]
+                        break
                     if not events:
                         self.wfile.write(b": keepalive\n\n")
                         self.wfile.flush()

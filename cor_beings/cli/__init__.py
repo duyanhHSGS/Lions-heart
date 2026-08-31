@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from threading import Event
 
 from cor_being import Being, Life, World
 from cor_beings.agent_loop import AgentLoopBeing
@@ -31,9 +32,15 @@ class CliBeing(Being):
     def _forget_agent(self) -> None:
         self._agent = None
 
-    def run_once(self, message: str, *, write: Callable[[str], object] = print) -> str:
+    def run_once(
+        self,
+        message: str,
+        *,
+        write: Callable[[str], object] = print,
+        cancel: Event | None = None,
+    ) -> str:
         if self._agent is None:
             raise RuntimeError("cli is not alive")
-        reply = self._agent.run_turn(message)
+        reply = self._agent.run_turn(message, cancel=cancel)
         write(reply)
         return reply

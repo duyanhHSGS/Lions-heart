@@ -9,8 +9,10 @@ import http.client
 import json
 import re
 import socket
+import time
 from collections.abc import Iterator
 from pathlib import Path
+from threading import Event, Thread
 from urllib.parse import urlsplit
 
 import pytest
@@ -67,16 +69,28 @@ class RecordingAgent:
 class RecordingTurns:
     def __init__(self) -> None:
         self.created: list[tuple[str, str]] = []
+        self.shutdown_started = False
+        self.stream_running = False
+        self.entered_wait = Event()
+        self.release_wait = Event()
+
+    def begin_shutdown(self) -> None:
+        self.shutdown_started = True
+        self.release_wait.set()
 
     def create(self, conversation_id: str, message: str) -> str:
         self.created.append((conversation_id, message))
         return "turn-test"
 
     def events_after(self, _turn_id: str, _after: int):
+        if self.stream_running:
+            return (), "running"
         return (({"sequence": 1, "kind": "turn_completed", "data": {}},), "completed")
 
     def wait_for_events(self, _turn_id: str, _after: int, _timeout: float) -> None:
-        return None
+        if self.stream_running:
+            self.entered_wait.set()
+            self.release_wait.wait(timeout=_timeout)
 
     def cancel(self, _turn_id: str) -> None:
         return None
@@ -908,9 +922,11 @@ def test_web_ui_health_and_head_routes(live_ui) -> None:
 
 def test_web_ui_life_closes_socket_and_forgets_dependencies(live_ui) -> None:
     ui, _agent, _session, life = live_ui
+    turns = getattr(ui, "_test_world").turns
     address = urlsplit(ui.url or "")
     life.die()
     life.die()
+    assert turns.shutdown_started is True
     assert ui.url is None
     with pytest.raises(RuntimeError, match="not alive"):
         ui.submit("too late")
@@ -918,11 +934,35 @@ def test_web_ui_life_closes_socket_and_forgets_dependencies(live_ui) -> None:
         socket.create_connection((address.hostname or "127.0.0.1", address.port or 0), timeout=0.2)
 
 
+def test_web_ui_shutdown_wakes_long_lived_event_stream_immediately(live_ui) -> None:
+    ui, _agent, _session, life = live_ui
+    turns = getattr(ui, "_test_world").turns
+    responses: list[int] = []
+    turns.stream_running = True
+
+    request_thread = Thread(
+        target=lambda: responses.append(request(ui, "GET", "/api/turns/slow/events?after=0")[0])
+    )
+    request_thread.start()
+    assert turns.entered_wait.wait(timeout=1)
+    started = time.monotonic()
+    life.die()
+    elapsed = time.monotonic() - started
+    request_thread.join(timeout=1)
+
+    assert elapsed < 1.0
+    assert responses == [200]
+    assert not request_thread.is_alive()
+
+
 def test_web_ui_failed_thread_start_rolls_back_server(monkeypatch, live_ui) -> None:
     closed: list[str] = []
 
     class FakeServer:
         server_address = ("127.0.0.1", 9999)
+
+        def begin_shutdown(self) -> None:
+            return None
 
         def server_close(self) -> None:
             closed.append("closed")
