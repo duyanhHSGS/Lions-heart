@@ -302,7 +302,31 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
           <button class="settings-tab" data-settings-tab="about" type="button">About</button>
         </nav>
         <form id="settings-form">
-          <section class="settings-panel" data-settings-panel="general"><h2>General</h2><label>Default provider<select name="default_provider" id="default-provider"></select></label><label>Retention days<input name="retention_days" type="number" min="1" max="3650"></label></section>
+          <section class="settings-panel general-settings" data-settings-panel="general">
+            <div class="settings-panel-heading"><h2>General</h2><p>Everyday preferences for Lion.</p></div>
+            <section class="settings-group" aria-labelledby="general-defaults-title">
+              <h3 id="general-defaults-title">Defaults</h3>
+              <label class="settings-row"><span><strong>Default provider</strong><small>The remote provider Lion uses for new messages.</small></span><select name="default_provider" id="default-provider"></select></label>
+              <label class="settings-row"><span><strong>Enter to send</strong><small>Press Enter to send. Shift + Enter always adds a new line.</small></span><input class="settings-switch" name="send_on_enter" type="checkbox" role="switch"></label>
+            </section>
+            <section class="settings-group" aria-labelledby="general-notifications-title">
+              <h3 id="general-notifications-title">Notifications</h3>
+              <label class="settings-row"><span><strong>Answer completed</strong><small>Show a browser notification when an answer finishes in the background.</small></span><input class="settings-switch" name="notify_on_completion" type="checkbox" role="switch"></label>
+            </section>
+            <section class="settings-group" aria-labelledby="general-data-title">
+              <h3 id="general-data-title">Data</h3>
+              <label class="settings-row"><span><strong>History retention</strong><small>Keep durable conversation data for this many days.</small></span><span class="settings-number"><input name="retention_days" type="number" min="1" max="3650"><small>days</small></span></label>
+              <div class="settings-row"><span><strong>Attachment limit</strong><small>Text uploads are checked before entering Lion's workspace.</small></span><output>5 MB</output></div>
+            </section>
+            <section class="settings-group" aria-labelledby="general-permissions-title">
+              <h3 id="general-permissions-title">Permissions</h3>
+              <div class="settings-row"><span><strong>Tool calls</strong><small>Lion asks before every read, edit, command, or MCP tool call.</small></span><output>Ask every time</output></div>
+            </section>
+            <section class="settings-group danger-settings" aria-labelledby="general-reset-title">
+              <h3 id="general-reset-title">Reset preferences</h3>
+              <div class="settings-row"><span><strong>Restore General defaults</strong><small>Reset this page's editable choices. Nothing changes until you save.</small></span><button id="general-reset" type="button">Restore defaults</button></div>
+            </section>
+          </section>
           <section class="settings-panel" data-settings-panel="providers" hidden><h2>Providers</h2><p>Built-in and generic OpenAI-compatible connections use encrypted keys. Secrets are never returned to this page.</p><div id="provider-key-fields"></div><h3>Custom connections</h3><div class="provider-editor"><input id="provider-name" maxlength="80" placeholder="Friendly name, e.g. My Gateway"><input id="provider-base-url" maxlength="2048" inputmode="url" placeholder="https://api.example.com/v1"><input id="provider-models" maxlength="4000" placeholder="Model IDs, separated by commas"><input id="provider-secret" type="password" autocomplete="off" placeholder="API key"><button id="provider-add" type="button">Add provider</button></div><div id="provider-connections" class="provider-connections"></div></section>
           <section class="settings-panel" data-settings-panel="models" hidden><h2>Models</h2><label>Text model<input name="default_text_model" placeholder="Enter a remote model ID"></label><button id="discover-models" type="button">Discover models</button><div id="model-results"></div></section>
           <section class="settings-panel" data-settings-panel="appearance" hidden><h2>Appearance</h2><label>Theme<select name="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section>

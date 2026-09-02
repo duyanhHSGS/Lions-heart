@@ -1203,6 +1203,80 @@ html.dark .composer {
   padding: 28px;
 }
 
+.settings-panel-heading {
+  display: grid;
+  gap: 5px;
+}
+
+.settings-panel-heading p,
+.settings-row small {
+  color: var(--muted-foreground);
+  font-weight: 450;
+}
+
+.settings-group {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--background);
+}
+
+.settings-group > h3 {
+  margin: 0;
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  background: var(--nav-surface-hover);
+  font-size: 12px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.settings-row {
+  display: flex !important;
+  min-height: 62px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px !important;
+  padding: 12px 15px;
+  color: var(--foreground) !important;
+}
+
+.settings-row + .settings-row { border-top: 1px solid var(--border); }
+.settings-row > span:first-child { display: grid; gap: 4px; }
+.settings-row strong { font-size: 13px; }
+.settings-row small { font-size: 12px; line-height: 1.35; }
+.settings-row select { width: min(250px, 44%) !important; }
+.settings-row output { flex: 0 0 auto; color: var(--muted-foreground); font-size: 13px; font-weight: 650; }
+
+.settings-number {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-number input { width: 92px !important; }
+
+.settings-switch {
+  width: 38px !important;
+  height: 21px;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.danger-settings .settings-row button {
+  flex: 0 0 auto;
+  border: 1px solid #d96a6a;
+  border-radius: 9px;
+  padding: 8px 11px;
+  color: #c33;
+  background: transparent;
+  cursor: pointer;
+}
+
 #provider-key-fields {
   display: grid;
   gap: 14px;
@@ -1305,6 +1379,8 @@ kbd {
   .settings-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .settings-layout > nav { display: flex; min-width: 0; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--border); }
   .settings-tab { width: auto; white-space: nowrap; }
+  .settings-row { align-items: flex-start; gap: 14px !important; }
+  .settings-row select { width: min(190px, 46%) !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {

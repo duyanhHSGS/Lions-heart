@@ -404,6 +404,9 @@ async function sendMessage(message) {
     activeTurnId = "";
     await loadSession();
     if (failureMessage) messages.append(makeMessage({ kind: "agent_error", data: { error: failureMessage } }));
+    else if (document.hidden && settingsSnapshot?.values.notify_on_completion && "Notification" in window && Notification.permission === "granted") {
+      new Notification("Lion finished answering", { body: "Your answer is ready." });
+    }
     await loadConversations();
     busy = false;
     input.disabled = false;
@@ -484,7 +487,9 @@ function fillSettings(snapshot, connections = providerConnections) {
   }
   for (const [name, value] of Object.entries(values)) {
     const field = settingsForm.elements.namedItem(name);
-    if (field) field.value = value;
+    if (!field) continue;
+    if (field instanceof HTMLInputElement && field.type === "checkbox") field.checked = Boolean(value);
+    else field.value = value;
   }
   renderActiveModel(values, connections, snapshot.providers || {});
   applyTheme(values.theme || "system");
@@ -576,7 +581,8 @@ form.addEventListener("submit", (event) => {
 
 input.addEventListener("input", resizeInput);
 input.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); form.requestSubmit(); }
+  const enterToSend = !settingsSnapshot || settingsSnapshot.values.send_on_enter !== false;
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && enterToSend) { event.preventDefault(); form.requestSubmit(); }
   if (event.key === "Escape" && busy) { event.preventDefault(); void cancelActiveTurn(); }
 });
 
@@ -697,8 +703,15 @@ settingsForm.addEventListener("submit", async (event) => {
   const data = new FormData(settingsForm);
   const changes = {};
   for (const name of ["default_provider", "default_text_model", "default_image_model", "default_video_model", "default_speech_model", "default_transcription_model", "system_prompt", "theme"]) changes[name] = String(data.get(name) || "");
+  for (const name of ["send_on_enter", "notify_on_completion"]) changes[name] = data.has(name);
   changes.retention_days = Number(data.get("retention_days"));
   try {
+    if (changes.notify_on_completion) {
+      if (!("Notification" in window)) changes.notify_on_completion = false;
+      else if (Notification.permission === "default") changes.notify_on_completion = await Notification.requestPermission() === "granted";
+      else changes.notify_on_completion = Notification.permission === "granted";
+      settingsForm.elements.namedItem("notify_on_completion").checked = changes.notify_on_completion;
+    }
     await apiFetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changes }) });
     for (const field of document.querySelectorAll("[data-provider-key]")) {
       if (!field.value) continue;
@@ -708,6 +721,15 @@ settingsForm.addEventListener("submit", async (event) => {
     await loadSettings();
     showToast("Settings saved");
   } catch (error) { $("#settings-error").textContent = error.message; }
+});
+
+$("#general-reset").addEventListener("click", () => {
+  settingsForm.elements.namedItem("default_provider").value = "openai";
+  settingsForm.elements.namedItem("send_on_enter").checked = true;
+  settingsForm.elements.namedItem("notify_on_completion").checked = false;
+  settingsForm.elements.namedItem("retention_days").value = "90";
+  showToast("General defaults restored · save to apply");
+  // TODO: Add a server-owned all-settings reset only when its secret-retention contract is explicit.
 });
 
 $("#discover-models").addEventListener("click", async () => {

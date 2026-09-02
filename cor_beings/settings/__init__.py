@@ -26,6 +26,8 @@ DEFAULTS: dict[str, object] = {
     "default_transcription_model": "",
     "system_prompt": "You are Lion, a helpful remote-provider coding assistant.",
     "theme": "system",
+    "send_on_enter": True,
+    "notify_on_completion": False,
     "retention_days": 90,
 }
 
@@ -76,6 +78,9 @@ class SettingsBeing(Being):
         retention = values.get("retention_days")
         if not isinstance(retention, int) or isinstance(retention, bool) or retention < 1:
             raise ValueError("retention_days must be a positive integer")
+        for key in ("send_on_enter", "notify_on_completion"):
+            if not isinstance(values.get(key), bool):
+                raise ValueError(f"{key} must be a boolean")
         for key in DEFAULTS:
             if key.endswith("_model") or key == "system_prompt":
                 if not isinstance(values.get(key), str):

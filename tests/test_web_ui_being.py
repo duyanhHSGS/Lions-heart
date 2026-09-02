@@ -362,6 +362,24 @@ def test_settings_content_remains_scrollable_in_short_and_mobile_viewports(live_
     assert "overflow-x: auto; overflow-y: hidden;" in stylesheet
 
 
+def test_general_settings_have_grouped_functional_preferences(live_ui) -> None:
+    ui = live_ui[0]
+    html_status, _headers, html_body = request(ui, "GET", "/index.html")
+    js_status, _headers, js_body = request(ui, "GET", "/app.js")
+    page = html_body.decode("utf-8")
+    controller = js_body.decode("utf-8")
+
+    assert html_status == 200
+    assert js_status == 200
+    for label in ("Defaults", "Enter to send", "Answer completed", "History retention", "Attachment limit", "Tool calls", "Restore General defaults"):
+        assert label in page
+    assert 'name="send_on_enter" type="checkbox" role="switch"' in page
+    assert 'name="notify_on_completion" type="checkbox" role="switch"' in page
+    assert "settingsSnapshot.values.send_on_enter !== false" in controller
+    assert 'new Notification("Lion finished answering"' in controller
+    assert 'for (const name of ["send_on_enter", "notify_on_completion"]) changes[name] = data.has(name);' in controller
+
+
 def test_recent_conversations_have_no_fade_overlay(live_ui) -> None:
     ui = live_ui[0]
     html_status, _html_headers, html_body = request(ui, "GET", "/index.html")

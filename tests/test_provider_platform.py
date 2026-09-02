@@ -96,8 +96,10 @@ def test_storage_transaction_rolls_back(platform) -> None:
 
 def test_settings_validate_persist_and_reload(platform) -> None:
     storage, settings, _auth, world = platform
-    updated = settings.update({"theme": "dark", "retention_days": 30, "default_provider": "gemini"})
+    updated = settings.update({"theme": "dark", "retention_days": 30, "default_provider": "gemini", "send_on_enter": False, "notify_on_completion": True})
     assert updated["theme"] == "dark"
+    assert updated["send_on_enter"] is False
+    assert updated["notify_on_completion"] is True
     with pytest.raises(ValueError, match="unknown setting"):
         settings.update({"gpu_layers": 99})
     with pytest.raises(ValueError, match="positive integer"):
@@ -108,8 +110,18 @@ def test_settings_validate_persist_and_reload(platform) -> None:
     try:
         assert replacement.values["theme"] == "dark"
         assert replacement.values["default_provider"] == "gemini"
+        assert replacement.values["send_on_enter"] is False
+        assert replacement.values["notify_on_completion"] is True
     finally:
         replacement_life.die()
+
+
+@pytest.mark.parametrize("name", ["send_on_enter", "notify_on_completion"])
+@pytest.mark.parametrize("invalid", [0, 1, "true", None, [], {}])
+def test_settings_boolean_preferences_reject_bool_lookalikes(platform, name, invalid) -> None:
+    _storage, settings, _auth, _world = platform
+    with pytest.raises(ValueError, match=f"{name} must be a boolean"):
+        settings.update({name: invalid})
 
 
 def test_provider_secrets_are_encrypted_and_public_snapshot_is_redacted(platform) -> None:
