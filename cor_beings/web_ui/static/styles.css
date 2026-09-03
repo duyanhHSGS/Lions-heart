@@ -162,6 +162,33 @@ svg {
   letter-spacing: -0.045em;
 }
 
+.brand-mark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(145deg, #21c997, #0d8f6d);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 24%);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.brand-beta {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 5px;
+  color: var(--nav-fg-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .brand-actions {
   display: flex;
   align-items: center;
@@ -316,6 +343,24 @@ svg {
   background: var(--sidebar);
 }
 
+.profile-settings {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  right: 18px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+}
+
+.profile-settings:hover { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 9%, transparent); }
+.profile-settings svg { width: 18px; height: 18px; }
+
 .profile-button {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) 20px;
@@ -323,13 +368,15 @@ svg {
   width: 100%;
   height: 44px;
   gap: 9px;
-  padding: 3px 9px 3px 8px;
+  padding: 3px 48px 3px 8px;
   border-radius: 14px;
   color: var(--nav-fg);
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
+
+.profile-button > svg { display: none; }
 
 .profile-button:hover,
 .profile-button[aria-expanded="true"] {
@@ -477,7 +524,9 @@ svg {
   left: 0;
   right: 0;
   display: flex;
+  align-items: center;
   justify-content: center;
+  flex-direction: column;
   padding: 0 24px;
 }
 
@@ -485,6 +534,20 @@ svg {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 15px;
+}
+
+.welcome-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(145deg, #23c899, #108969);
+  box-shadow: 0 8px 24px rgb(23 184 139 / 22%);
+  font-size: 17px;
+  font-weight: 800;
 }
 
 .welcome h1 {
@@ -572,7 +635,7 @@ svg {
 .composer-dock {
   position: absolute;
   z-index: 10;
-  top: calc(27.5dvh + 78px);
+  top: calc(27.5dvh + 80px);
   left: 50%;
   width: min(calc(100% - 32px), var(--thread-max-width));
   transform: translateX(-50%);
@@ -901,7 +964,8 @@ html.dark .composer {
 .sidebar-collapsed .brand-actions .todo-control,
 .sidebar-collapsed .nav-row span,
 .sidebar-collapsed .profile-copy,
-.sidebar-collapsed .profile-button>svg {
+.sidebar-collapsed .profile-button>svg,
+.sidebar-collapsed .profile-settings {
   display: none;
 }
 
@@ -1017,6 +1081,10 @@ html.dark .composer {
   .welcome h1 {
     font-size: 20px;
   }
+
+  .welcome { padding-inline: 14px; }
+  .welcome-row { gap: 11px; }
+  .welcome-mark { width: 38px; height: 38px; }
 
   .permission-pill span {
     max-width: 104px;
@@ -1195,6 +1263,7 @@ html.dark .composer {
 
 .settings-panel {
   display: grid;
+  grid-auto-rows: max-content;
   min-height: 0;
   flex: 1 1 auto;
   align-content: start;
@@ -1215,6 +1284,7 @@ html.dark .composer {
 }
 
 .settings-group {
+  min-height: max-content;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;

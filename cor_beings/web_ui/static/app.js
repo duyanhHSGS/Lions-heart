@@ -19,6 +19,8 @@ const messageScroll = $("#message-scroll");
 const recents = $("#recents");
 const toast = $("#toast");
 const themeToggle = $("#theme-toggle");
+const themeToggleLabel = $("#theme-toggle-label");
+const themeModeIcon = $("#theme-mode-icon");
 const permissionLabel = $("#permission-label");
 const authScreen = $("#auth-screen");
 const settingsModal = $("#settings-modal");
@@ -44,6 +46,14 @@ function showToast(text) {
   toast.classList.add("visible");
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 3200);
+}
+
+function returnTodo(control) {
+  // TODO: Replace this honest placeholder only when the named feature has a real product contract.
+  const detail = control.dataset.todo || "This control is not connected yet";
+  closeMenus();
+  showToast(`TODO · ${detail}`);
+  return "TODO";
 }
 
 async function apiFetch(path, options = {}) {
@@ -423,7 +433,8 @@ async function cancelActiveTurn() {
 function applyTheme(theme) {
   const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.classList.toggle("dark", dark);
-  themeToggle.textContent = dark ? "Light Mode" : "Dark Mode";
+  themeToggleLabel.textContent = dark ? "Light Mode" : "Dark Mode";
+  themeModeIcon.setAttribute("href", dark ? "#i-sun" : "#i-moon");
 }
 
 function showSettingsTab(name) {
@@ -598,12 +609,12 @@ document.querySelectorAll(".menu-trigger[data-menu]").forEach((trigger) => {
 });
 
 document.querySelectorAll(".popup").forEach((popup) => popup.addEventListener("click", (event) => event.stopPropagation()));
-document.querySelectorAll("[data-todo]").forEach((control) => control.addEventListener("click", () => { closeMenus(); showToast(`TODO · ${control.dataset.todo}`); }));
+document.querySelectorAll("[data-todo]").forEach((control) => control.addEventListener("click", () => returnTodo(control)));
 document.querySelectorAll("[data-permission]").forEach((control) => control.addEventListener("click", () => { permissionLabel.textContent = "Ask for approval"; closeMenus(); showToast("Every tool call requires approval"); }));
 
 $("#sidebar-toggle").addEventListener("click", () => { appShell.classList.toggle("sidebar-collapsed"); closeMenus(); });
 $("#home-nav").addEventListener("click", () => input.focus());
-$("#models-nav").addEventListener("click", () => void openSettings("models"));
+$("#hub-nav").addEventListener("click", () => void openSettings("models"));
 $("#projects-nav").addEventListener("click", async () => {
   const payload = await apiFetch("/api/projects");
   const names = (payload.projects || []).map((project) => project.name).slice(0, 4);
@@ -639,6 +650,11 @@ $("#provider-add").addEventListener("click", async () => {
   } catch (error) { $("#settings-error").textContent = error.message; }
 });
 $("#settings-open").addEventListener("click", () => void openSettings());
+$("#profile-settings").addEventListener("click", () => void openSettings());
+$("#api-keys-open").addEventListener("click", () => void openSettings("providers"));
+$("#appearance-open").addEventListener("click", () => void openSettings("appearance"));
+$("#connections-open").addEventListener("click", () => void openSettings("tools"));
+$("#composer-projects").addEventListener("click", () => void openSettings("projects"));
 $("#run-settings").addEventListener("click", () => void openSettings("models"));
 $("#model-menu-configure").addEventListener("click", () => void openSettings("models"));
 $("#temporary-chat").addEventListener("click", async () => {

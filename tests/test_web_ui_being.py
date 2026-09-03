@@ -305,20 +305,20 @@ def test_web_ui_serves_text_only_chat_shell_and_controls(live_ui) -> None:
     assert status == 200
     assert headers["Content-Type"] == "text/html; charset=utf-8"
     assert "default-src 'self'" in headers["Content-Security-Policy"]
-    assert "What’s on your mind today?" in page
+    assert "What's on your mind today?" in page
     assert 'placeholder="Ask anything"' in page
     assert ">Lion's Heart<" in page
     assert "<img" not in page
     for label in (
         "New chat",
-        "Models",
+        "Hub",
         "Projects",
         "Images",
         "Video",
         "More",
         "Audio",
         "Recipes",
-        "API Activity",
+        "API",
         "Settings",
         "Guided Tour",
         "Add text files",
@@ -360,6 +360,8 @@ def test_settings_content_remains_scrollable_in_short_and_mobile_viewports(live_
     assert "min-height: 0;\n  overflow: hidden;" in stylesheet
     assert "flex: 1 1 auto;" in stylesheet
     assert "overflow-x: auto; overflow-y: hidden;" in stylesheet
+    assert "grid-auto-rows: max-content;" in stylesheet
+    assert "min-height: max-content;" in stylesheet
 
 
 def test_general_settings_have_grouped_functional_preferences(live_ui) -> None:
@@ -469,6 +471,69 @@ def test_frontend_has_no_node_manifest_or_external_runtime_assets() -> None:
     assert {
         path.suffix for path in static.rglob("*") if path.is_file()
     } == {".html", ".css", ".js"}
+
+
+def test_rich_shell_exposes_lion_relevant_reference_surfaces(live_ui) -> None:
+    _, _, body = request(live_ui[0], "GET", "/index.html")
+    page = body.decode("utf-8")
+
+    for control_id in (
+        "hub-nav",
+        "projects-nav",
+        "images-nav",
+        "video-nav",
+        "audio-nav",
+        "recipes-nav",
+        "activity-nav",
+        "profile-settings",
+        "api-keys-open",
+        "appearance-open",
+        "connections-open",
+    ):
+        assert f'id="{control_id}"' in page
+    assert '<span class="brand-beta">beta</span>' in page
+    assert 'id="theme-mode-icon" href="#i-moon"' in page
+
+
+def test_theme_toggle_preserves_and_switches_its_icon(live_ui) -> None:
+    _, _, html = request(live_ui[0], "GET", "/index.html")
+    _, _, script = request(live_ui[0], "GET", "/app.js")
+    page = html.decode("utf-8")
+    controller = script.decode("utf-8")
+
+    assert 'id="theme-toggle-label">Dark Mode</span>' in page
+    assert 'themeToggleLabel.textContent = dark ? "Light Mode" : "Dark Mode";' in controller
+    assert 'themeModeIcon.setAttribute("href", dark ? "#i-sun" : "#i-moon");' in controller
+
+
+def test_rich_shell_keeps_forbidden_local_model_surfaces_out(live_ui) -> None:
+    _, _, body = request(live_ui[0], "GET", "/index.html")
+    page = body.decode("utf-8")
+
+    assert 'id="train-nav"' not in page
+    assert 'id="model-download"' not in page
+    assert 'id="local-model-picker"' not in page
+
+
+def test_every_todo_button_explains_its_todo(live_ui) -> None:
+    _, _, body = request(live_ui[0], "GET", "/index.html")
+    page = body.decode("utf-8")
+    todo_buttons = re.findall(r"<button\b(?=[^>]*\btodo-control\b)[^>]*>", page, re.DOTALL)
+
+    assert len(todo_buttons) >= 7
+    assert all('data-todo="' in button for button in todo_buttons)
+
+
+def test_todo_controls_return_todo_without_extra_empty_chat_controls(live_ui) -> None:
+    _, _, html = request(live_ui[0], "GET", "/index.html")
+    _, _, script = request(live_ui[0], "GET", "/app.js")
+    page = html.decode("utf-8")
+    controller = script.decode("utf-8")
+
+    assert "data-starter=" not in page
+    assert 'return "TODO";' in controller
+    assert 'showToast(`TODO · ${detail}`)' in controller
+    assert "control.dataset.starter" not in controller
 
 
 @pytest.mark.parametrize(

@@ -107,6 +107,15 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 20h16"></path></symbol>
     <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 7h16v13H4ZM3 3h18v4H3Zm6 8h6"></path></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6"></path></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 14v-4m4 8V6m4 15V3m4 15V6m4 8v-4"></path></symbol>
+    <symbol id="i-chef" viewBox="0 0 24 24"><path d="M7 11a4 4 0 1 1 2-7 4 4 0 0 1 6 0 4 4 0 1 1 2 7v8H7Zm0 4h10"></path></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10m6 10V4m6 16v-7m4 7H2"></path></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9.8 9a2.4 2.4 0 1 1 3.3 2.2c-.8.4-1.1.9-1.1 1.8m0 3h.01"></path></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"></path></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 5H5v14h5m4-3 4-4-4-4m4 4H9"></path></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9m5.7-6.7a9 9 0 1 1-11.4 0"></path></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="m12 2 1.5 5.2L19 9l-5.5 1.8L12 16l-1.5-5.2L5 9l5.5-1.8Zm7 13 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7Z"></path></symbol>
   </svg>
 
   <div class="app-shell" id="app-shell">
@@ -114,7 +123,7 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
       <header class="sidebar-brand">
         <button class="brand-home" id="home-nav" type="button"
           aria-label="Lion's Heart home">
-          <span class="brand-word">Lion's Heart</span>
+          <span class="brand-mark" aria-hidden="true">L</span><span class="brand-word">Lion's Heart</span><span class="brand-beta">beta</span>
         </button>
         <div class="brand-actions">
           <button class="icon-btn todo-control" type="button" data-todo="Search needs an indexed history Being"
@@ -132,9 +141,9 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
           </svg><span>New chat</span></button></div>
 
       <nav class="sidebar-scroll" aria-label="Workspace">
-        <button class="nav-row" id="models-nav" type="button"><svg>
+        <button class="nav-row" id="hub-nav" type="button"><svg>
             <use href="#i-grid"></use>
-          </svg><span>Models</span></button>
+          </svg><span>Hub</span></button>
         <button class="nav-row" id="projects-nav" type="button"><svg>
             <use href="#i-folder"></use>
           </svg><span>Projects</span><span class="row-tail">＋</span></button>
@@ -151,9 +160,9 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
               <use href="#i-chevron"></use>
             </svg></button>
           <div class="popup sidebar-more" id="sidebar-more" hidden>
-            <button id="audio-nav" type="button">Audio</button><button
-              id="recipes-nav" type="button">Recipes</button><button
-              id="activity-nav" type="button">API Activity</button>
+            <button id="audio-nav" type="button"><svg><use href="#i-wave"></use></svg>Audio</button><button
+              id="recipes-nav" type="button"><svg><use href="#i-chef"></use></svg>Recipes</button><button
+              id="activity-nav" type="button"><svg><use href="#i-chart"></use></svg>API</button>
             <hr><button class="todo-control" type="button" data-todo="Sidebar customization is not connected">Customize
               sidebar</button>
           </div>
@@ -167,19 +176,17 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
       <footer class="profile-wrap menu-anchor">
         <button class="profile-button menu-trigger" type="button" data-menu="profile-menu" aria-expanded="false"><span
             class="profile-avatar">L</span><span class="profile-copy"><strong>Local
-              Lion</strong><small>Thanks mr sloth!</small></span><svg>
+              Lion</strong><small>Lion's Heart</small></span><svg>
             <use href="#i-more"></use>
-          </svg></button>
+          </svg></button><button class="profile-settings" id="profile-settings" type="button" aria-label="Settings"><svg><use href="#i-settings"></use></svg></button>
         <div class="popup profile-menu" id="profile-menu" hidden>
           <button id="settings-open" type="button"><svg>
               <use href="#i-settings"></use>
-            </svg>Settings</button><button class="todo-control" type="button"
-            data-todo="API backend is not connected"><svg>
+            </svg>Settings</button><button id="api-keys-open" type="button"><svg>
               <use href="#i-globe"></use>
-            </svg>API</button><button id="theme-toggle" type="button">Dark Mode</button><button class="todo-control"
-            type="button" data-todo="Guided Tour is not connected">Guided Tour</button>
-          <hr><button id="logout" type="button">Log
-            out</button>
+            </svg>API keys</button><button id="appearance-open" type="button"><svg><use href="#i-sparkle"></use></svg>Appearance</button><button id="connections-open" type="button"><svg><use href="#i-grid"></use></svg>Connections</button><button id="theme-toggle" type="button"><svg><use id="theme-mode-icon" href="#i-moon"></use></svg><span id="theme-toggle-label">Dark Mode</span></button><button class="todo-control"
+            type="button" data-todo="Guided Tour is not connected"><svg><use href="#i-help"></use></svg>Guided Tour</button>
+          <hr><button class="todo-control" type="button" data-todo="Help center is not connected"><svg><use href="#i-help"></use></svg>Help</button><button id="logout" type="button"><svg><use href="#i-logout"></use></svg>Log out</button><button class="todo-control" type="button" data-todo="Server shutdown needs an explicit owner-confirmation contract"><svg><use href="#i-power"></use></svg>Shut down</button>
         </div>
       </footer>
     </aside>
@@ -212,7 +219,7 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
         <div class="message-scroll" id="message-scroll">
           <div class="welcome" id="welcome">
             <div class="welcome-row">
-              <h1>What’s on your mind today?</h1>
+              <span class="welcome-mark" aria-hidden="true">L</span><h1>What's on your mind today?</h1>
             </div>
           </div>
           <div class="messages" id="messages" aria-live="polite"></div>
@@ -239,9 +246,9 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
                         <use href="#i-code"></use>
                       </svg>Code</button><button id="chat-with-files" type="button"><svg>
                         <use href="#i-book"></use>
-                      </svg>Chat with Files</button><button class="todo-control" type="button"
-                      id="mcp-open">MCP</button><button class="todo-control"
-                      type="button" data-todo="Projects are not connected">Projects</button>
+                      </svg>Chat with Files</button><button type="button"
+                      id="mcp-open">MCP</button><button id="composer-projects"
+                      type="button">Projects</button>
                     <hr><button id="saved-prompts-open" type="button">Saved prompts</button>
                   </div>
                 </div>
