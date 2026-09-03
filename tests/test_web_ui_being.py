@@ -315,7 +315,6 @@ def test_web_ui_serves_text_only_chat_shell_and_controls(live_ui) -> None:
         "Projects",
         "Images",
         "Video",
-        "More",
         "Audio",
         "Recipes",
         "API",
@@ -493,6 +492,61 @@ def test_rich_shell_exposes_lion_relevant_reference_surfaces(live_ui) -> None:
         assert f'id="{control_id}"' in page
     assert '<span class="brand-beta">beta</span>' in page
     assert 'id="theme-mode-icon" href="#i-moon"' in page
+
+
+def test_audio_recipes_and_api_are_direct_nav_pages_not_more_popup(live_ui) -> None:
+    ui = live_ui[0]
+    _, _, html = request(ui, "GET", "/index.html")
+    _, _, script = request(ui, "GET", "/app.js")
+    _, _, css = request(ui, "GET", "/styles.css")
+    page = html.decode("utf-8")
+    controller = script.decode("utf-8")
+    stylesheet = css.decode("utf-8")
+
+    assert 'id="sidebar-more"' not in page
+    assert '<span>More</span>' not in page
+    assert "Customize\n              sidebar" not in page
+    for control_id, label in (
+        ("audio-nav", "Audio"),
+        ("recipes-nav", "Recipes"),
+        ("activity-nav", "API"),
+    ):
+        assert f'class="nav-row" id="{control_id}"' in page
+        assert f"<span>{label}</span>" in page
+
+    assert 'id="chat-page"' in page
+    assert 'id="workbench-page" hidden' in page
+    assert 'id="workbench-modal"' not in page
+    assert "chatPage.hidden = true;" in controller
+    assert "workbenchPage.hidden = false;" in controller
+    assert 'workbenchCreate.hidden = kind === "activity";' in controller
+    assert "function showChatPage()" in controller
+    assert ".workbench-page {" in stylesheet
+    assert ".workbench-form-grid {" in stylesheet
+
+
+def test_workbench_navigation_reuses_one_main_surface_for_all_resource_pages(live_ui) -> None:
+    ui = live_ui[0]
+    _, _, script = request(ui, "GET", "/app.js")
+    controller = script.decode("utf-8")
+
+    assert '[["#images-nav", "image"], ["#video-nav", "video"], ["#audio-nav", "audio"], ["#recipes-nav", "recipes"], ["#activity-nav", "activity"]]' in controller
+    assert "workbenchModal" not in controller
+    assert 'workbenchTitle.textContent = kind === "activity" ? "API Activity"' in controller
+    assert 'workbenchCreate.hidden = kind === "activity";' in controller
+    assert 'mediaForm.hidden = ["recipes", "activity"].includes(kind);' in controller
+    assert 'recipeForm.hidden = kind !== "recipes";' in controller
+
+
+def test_chat_navigation_restores_chat_after_opening_workbench(live_ui) -> None:
+    ui = live_ui[0]
+    _, _, script = request(ui, "GET", "/app.js")
+    controller = script.decode("utf-8")
+
+    assert "function showChatPage()" in controller
+    assert "workbenchPage.hidden = true;" in controller
+    assert "chatPage.hidden = false;" in controller
+    assert controller.count("showChatPage();") >= 3
 
 
 def test_theme_toggle_preserves_and_switches_its_icon(live_ui) -> None:

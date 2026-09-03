@@ -2,6 +2,7 @@
 TODO: Add a richer non-blocking approval drawer after the safe confirm-based gate proves itself.
 TODO: Add math and Mermaid only after a safe build-free renderer contract exists.
 TODO: Keep Web Search disabled until its provider/security contract is chosen.
+TODO: Add history-aware URL routing if dedicated workbench pages need browser back/forward navigation.
 */
 
 "use strict";
@@ -10,6 +11,8 @@ import { renderMarkdownSubset } from "./markdown.js";
 
 const $ = (selector) => document.querySelector(selector);
 const appShell = $("#app-shell");
+const chatPage = $("#chat-page");
+const workbenchPage = $("#workbench-page");
 const thread = $("#thread");
 const form = $("#chat-form");
 const input = $("#message");
@@ -239,6 +242,7 @@ function makeConversationRow(conversation) {
   open.addEventListener("click", async () => {
     if (busy) { showToast("Finish or stop the current answer before switching chats"); return; }
     await apiFetch("/api/conversations/open", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: conversation.id }) });
+    showChatPage();
     await loadSession(); await loadConversations(); input.focus();
   });
 
@@ -660,6 +664,7 @@ $("#model-menu-configure").addEventListener("click", () => void openSettings("mo
 $("#temporary-chat").addEventListener("click", async () => {
   const payload = await apiFetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "Temporary chat", temporary: true }) });
   currentConversationId = payload.id;
+  showChatPage();
   renderEvents([]);
   showToast("Temporary chat · erased on close or shutdown");
   input.focus();
@@ -667,6 +672,7 @@ $("#temporary-chat").addEventListener("click", async () => {
 $("#new-chat").addEventListener("click", async () => {
   const payload = await apiFetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "New chat", temporary: false }) });
   currentConversationId = payload.id;
+  showChatPage();
   renderEvents([]);
   await loadConversations();
   input.focus();
@@ -769,10 +775,26 @@ $("#discover-models").addEventListener("click", async () => {
 });
 
 let workbenchKind = "image";
-const workbenchModal = $("#workbench-modal");
 const workbenchList = $("#workbench-list");
+const workbenchTitle = $("#workbench-title");
+const workbenchCopy = $("#workbench-copy");
+const workbenchCreate = $("#workbench-create");
 const mediaForm = $("#media-form");
 const recipeForm = $("#recipe-form");
+
+const workbenchDescriptions = {
+  image: "Create and manage generated images in Lion's main workspace.",
+  video: "Create and manage generated video jobs in Lion's main workspace.",
+  audio: "Create and manage generated audio in Lion's main workspace.",
+  recipes: "Save reusable generation recipes and manage their revisions.",
+  activity: "Review API request activity and token totals without opening a popup.",
+};
+
+function showChatPage() {
+  workbenchPage.hidden = true;
+  chatPage.hidden = false;
+}
+
 
 function resourceRow(label, actions = []) {
   const row = document.createElement("div"); row.className = "resource-row";
@@ -814,17 +836,21 @@ async function loadWorkbench() {
 }
 
 async function openWorkbench(kind) {
-  closeMenus(); workbenchKind = kind; workbenchModal.hidden = false;
-  $("#workbench-title").textContent = kind === "activity" ? "API Activity" : kind[0].toUpperCase() + kind.slice(1);
-  mediaForm.hidden = ["recipes", "activity"].includes(kind); recipeForm.hidden = kind !== "recipes";
+  closeMenus();
+  workbenchKind = kind;
+  chatPage.hidden = true;
+  workbenchPage.hidden = false;
+  workbenchTitle.textContent = kind === "activity" ? "API Activity" : kind[0].toUpperCase() + kind.slice(1);
+  workbenchCopy.textContent = workbenchDescriptions[kind] || "Manage Lion resources in the main workspace.";
+  workbenchCreate.hidden = kind === "activity";
+  mediaForm.hidden = ["recipes", "activity"].includes(kind);
+  recipeForm.hidden = kind !== "recipes";
   try { await loadWorkbench(); } catch (error) { workbenchList.textContent = error.message; }
 }
 
 for (const [id, kind] of [["#images-nav", "image"], ["#video-nav", "video"], ["#audio-nav", "audio"], ["#recipes-nav", "recipes"], ["#activity-nav", "activity"]]) {
   $(id).addEventListener("click", () => void openWorkbench(kind));
 }
-$("#workbench-close").addEventListener("click", () => { workbenchModal.hidden = true; });
-workbenchModal.addEventListener("click", (event) => { if (event.target === workbenchModal) workbenchModal.hidden = true; });
 $("#chat-action-close").addEventListener("click", closeChatAction);
 $("#chat-action-cancel").addEventListener("click", closeChatAction);
 $("#chat-project-select").addEventListener("change", (event) => {
@@ -880,7 +906,7 @@ recipeForm.addEventListener("submit", async (event) => {
 
 document.addEventListener("click", () => closeMenus());
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; savedPromptsModal.hidden = true; workbenchModal.hidden = true; closeChatAction(); }
+  if (event.key === "Escape") { closeMenus(); settingsModal.hidden = true; savedPromptsModal.hidden = true; closeChatAction(); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); void openSettings(); }
 });
 
