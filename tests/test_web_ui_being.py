@@ -550,6 +550,41 @@ def test_chat_navigation_restores_chat_after_opening_workbench(live_ui) -> None:
     assert controller.count("showChatPage();") >= 3
 
 
+def test_submit_renders_user_bubble_before_turn_request(live_ui) -> None:
+    _, _, script = request(live_ui[0], "GET", "/app.js")
+    controller = script.decode("utf-8")
+    send_start = controller.index("async function sendMessage(message) {")
+    request_start = controller.index("const payload = await apiFetch(`/api/sessions/", send_start)
+    optimistic_start = controller.index("ensureOptimisticUserMessage(message);", send_start)
+
+    assert optimistic_start < request_start
+    assert 'if (event.key === "Enter" && !event.shiftKey && !event.isComposing && enterToSend) { event.preventDefault(); form.requestSubmit(); }' in controller
+
+
+def test_optimistic_user_bubble_is_immediate_and_deduplicated(live_ui) -> None:
+    _, _, script = request(live_ui[0], "GET", "/app.js")
+    controller = script.decode("utf-8")
+
+    assert "function ensureOptimisticUserMessage(message) {" in controller
+    assert "if (messages.querySelector('[data-optimistic-user=\"true\"]')) return;" in controller
+    assert 'const bubble = makeMessage({ kind: "user", data: { text: message } });' in controller
+    assert 'bubble.dataset.optimisticUser = "true";' in controller
+    assert 'messages.append(bubble);' in controller
+    assert 'thread.classList.add("has-messages");' in controller
+
+
+def test_empty_session_bootstrap_restores_pending_user_bubble(live_ui) -> None:
+    _, _, script = request(live_ui[0], "GET", "/app.js")
+    controller = script.decode("utf-8")
+    send_start = controller.index("async function sendMessage(message) {")
+    send_end = controller.index("function applyTheme", send_start)
+    send_block = controller[send_start:send_end]
+
+    assert 'if (!currentConversationId) {' in send_block
+    assert 'await loadSession();\n      ensureOptimisticUserMessage(message);' in send_block
+    assert send_block.count("ensureOptimisticUserMessage(message);") == 2
+
+
 def test_rich_shell_is_dark_only_from_first_paint(live_ui) -> None:
     _, _, html = request(live_ui[0], "GET", "/index.html")
     _, _, script = request(live_ui[0], "GET", "/app.js")

@@ -120,6 +120,16 @@ function renderEvents(events) {
   if (hasMessages) window.requestAnimationFrame(() => { messageScroll.scrollTop = messageScroll.scrollHeight; });
 }
 
+function ensureOptimisticUserMessage(message) {
+  if (messages.querySelector('[data-optimistic-user="true"]')) return;
+  const bubble = makeMessage({ kind: "user", data: { text: message } });
+  bubble.dataset.optimisticUser = "true";
+  messages.append(bubble);
+  thread.classList.add("has-messages");
+  window.requestAnimationFrame(() => { messageScroll.scrollTop = messageScroll.scrollHeight; });
+  // TODO: Add an explicit failed-send state if the turn POST is rejected before the durable user event exists.
+}
+
 async function loadSession() {
   try {
     const payload = await apiFetch("/api/session");
@@ -392,6 +402,7 @@ async function consumeTurn(turnId) {
 }
 
 async function sendMessage(message) {
+  ensureOptimisticUserMessage(message);
   busy = true;
   input.disabled = true;
   sendButton.disabled = false;
@@ -399,7 +410,10 @@ async function sendMessage(message) {
   closeMenus();
   let failureMessage = "";
   try {
-    if (!currentConversationId) await loadSession();
+    if (!currentConversationId) {
+      await loadSession();
+      ensureOptimisticUserMessage(message);
+    }
     const payload = await apiFetch(`/api/sessions/${encodeURIComponent(currentConversationId)}/turns`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
