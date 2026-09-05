@@ -104,6 +104,10 @@ def test_settings_validate_persist_and_reload(platform) -> None:
         settings.update({"gpu_layers": 99})
     with pytest.raises(ValueError, match="positive integer"):
         settings.update({"retention_days": 0})
+    with pytest.raises(ValueError, match="fixed to dark"):
+        settings.update({"theme": "light"})
+    with pytest.raises(ValueError, match="fixed to dark"):
+        settings.update({"theme": "system"})
 
     replacement = SettingsBeing()
     replacement_life = born(replacement, World(storage, replacement))
@@ -112,6 +116,26 @@ def test_settings_validate_persist_and_reload(platform) -> None:
         assert replacement.values["default_provider"] == "gemini"
         assert replacement.values["send_on_enter"] is False
         assert replacement.values["notify_on_completion"] is True
+    finally:
+        replacement_life.die()
+
+
+@pytest.mark.parametrize("legacy_theme", ["light", "system"])
+def test_settings_birth_repairs_legacy_theme_to_dark(platform, legacy_theme: str) -> None:
+    storage = platform[0]
+    storage.execute(
+        "INSERT INTO settings(key, value_json, updated_at) VALUES (?, ?, 1) "
+        "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+        ("theme", json.dumps(legacy_theme)),
+    )
+
+    replacement = SettingsBeing()
+    replacement_life = born(replacement, World(storage, replacement))
+    try:
+        assert replacement.values["theme"] == "dark"
+        row = storage.fetchone("SELECT value_json FROM settings WHERE key='theme'")
+        assert row is not None
+        assert json.loads(row["value_json"]) == "dark"
     finally:
         replacement_life.die()
 

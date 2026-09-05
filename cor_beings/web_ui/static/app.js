@@ -21,9 +21,6 @@ const messages = $("#messages");
 const messageScroll = $("#message-scroll");
 const recents = $("#recents");
 const toast = $("#toast");
-const themeToggle = $("#theme-toggle");
-const themeToggleLabel = $("#theme-toggle-label");
-const themeModeIcon = $("#theme-mode-icon");
 const permissionLabel = $("#permission-label");
 const authScreen = $("#auth-screen");
 const settingsModal = $("#settings-modal");
@@ -434,11 +431,9 @@ async function cancelActiveTurn() {
   await apiFetch(`/api/turns/${encodeURIComponent(activeTurnId)}`, { method: "DELETE" });
 }
 
-function applyTheme(theme) {
-  const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.classList.toggle("dark", dark);
-  themeToggleLabel.textContent = dark ? "Light Mode" : "Dark Mode";
-  themeModeIcon.setAttribute("href", dark ? "#i-sun" : "#i-moon");
+function applyTheme() {
+  document.documentElement.classList.add("dark");
+  // TODO: Keep future pages on the shared dark palette instead of adding page-local light fallbacks.
 }
 
 function showSettingsTab(name) {
@@ -507,7 +502,7 @@ function fillSettings(snapshot, connections = providerConnections) {
     else field.value = value;
   }
   renderActiveModel(values, connections, snapshot.providers || {});
-  applyTheme(values.theme || "system");
+  applyTheme();
   const keyFields = $("#provider-key-fields");
   keyFields.replaceChildren();
   for (const provider of connections.filter((item) => item.built_in).map((item) => item.id)) {
@@ -686,16 +681,6 @@ filePicker.addEventListener("change", async () => {
   finally { filePicker.value = ""; }
 });
 
-themeToggle.addEventListener("click", async () => {
-  const theme = document.documentElement.classList.contains("dark") ? "light" : "dark";
-  try {
-    const payload = await apiFetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changes: { theme } }) });
-    settingsSnapshot.values = payload.values;
-    applyTheme(theme);
-  } catch (error) { showToast(error.message); }
-  closeMenus();
-});
-
 $("#auth-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("#auth-error").textContent = "";
@@ -724,7 +709,7 @@ settingsForm.addEventListener("submit", async (event) => {
   $("#settings-error").textContent = "";
   const data = new FormData(settingsForm);
   const changes = {};
-  for (const name of ["default_provider", "default_text_model", "default_image_model", "default_video_model", "default_speech_model", "default_transcription_model", "system_prompt", "theme"]) changes[name] = String(data.get(name) || "");
+  for (const name of ["default_provider", "default_text_model", "default_image_model", "default_video_model", "default_speech_model", "default_transcription_model", "system_prompt"]) changes[name] = String(data.get(name) || "");
   for (const name of ["send_on_enter", "notify_on_completion"]) changes[name] = data.has(name);
   changes.retention_days = Number(data.get("retention_days"));
   try {

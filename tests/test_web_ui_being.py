@@ -338,7 +338,7 @@ def test_web_ui_css_keeps_reference_geometry_and_theme_tokens(live_ui) -> None:
     stylesheet = body.decode("utf-8")
     assert status == 200
     for declaration in (
-        "--background: #fefefd",
+        "color-scheme: dark",
         "--primary: #17b88b",
         "--sidebar-width: 280px",
         "--thread-max-width: 46rem",
@@ -348,6 +348,7 @@ def test_web_ui_css_keeps_reference_geometry_and_theme_tokens(live_ui) -> None:
         "--sidebar: #1f1f1f",
     ):
         assert declaration in stylesheet
+    assert "--background: #fefefd" not in stylesheet
 
 
 def test_settings_content_remains_scrollable_in_short_and_mobile_viewports(live_ui) -> None:
@@ -491,7 +492,7 @@ def test_rich_shell_exposes_lion_relevant_reference_surfaces(live_ui) -> None:
     ):
         assert f'id="{control_id}"' in page
     assert '<span class="brand-beta">beta</span>' in page
-    assert 'id="theme-mode-icon" href="#i-moon"' in page
+    assert 'id="theme-toggle"' not in page
 
 
 def test_audio_recipes_and_api_are_direct_nav_pages_not_more_popup(live_ui) -> None:
@@ -549,15 +550,38 @@ def test_chat_navigation_restores_chat_after_opening_workbench(live_ui) -> None:
     assert controller.count("showChatPage();") >= 3
 
 
-def test_theme_toggle_preserves_and_switches_its_icon(live_ui) -> None:
+def test_rich_shell_is_dark_only_from_first_paint(live_ui) -> None:
     _, _, html = request(live_ui[0], "GET", "/index.html")
     _, _, script = request(live_ui[0], "GET", "/app.js")
+    _, _, styles = request(live_ui[0], "GET", "/styles.css")
     page = html.decode("utf-8")
     controller = script.decode("utf-8")
+    css = styles.decode("utf-8")
 
-    assert 'id="theme-toggle-label">Dark Mode</span>' in page
-    assert 'themeToggleLabel.textContent = dark ? "Light Mode" : "Dark Mode";' in controller
-    assert 'themeModeIcon.setAttribute("href", dark ? "#i-sun" : "#i-moon");' in controller
+    assert '<html lang="en" class="dark">' in page
+    assert '<meta name="color-scheme" content="dark">' in page
+    assert 'id="theme-toggle"' not in page
+    assert 'name="theme"' not in page
+    assert '<option value="light">' not in page
+    assert '<option value="system">' not in page
+    assert 'document.documentElement.classList.add("dark");' in controller
+    assert "matchMedia(" not in controller
+    assert "themeToggle" not in controller
+    assert "color-scheme: dark;" in css
+    assert "--background: #181818;" in css
+
+
+def test_dark_only_surfaces_do_not_fall_back_to_white_panels(live_ui) -> None:
+    _, _, styles = request(live_ui[0], "GET", "/styles.css")
+    css = styles.decode("utf-8")
+
+    assert ".small-dialog {" in css
+    assert "background:var(--card); color:var(--foreground);" in css
+    assert ".approval-drawer > div" in css
+    assert "var(--surface,#fff)" not in css
+    assert "var(--text,#222)" not in css
+    assert "background: #fefefd;" not in css
+    assert "background: #ffffff;" not in css
 
 
 def test_rich_shell_keeps_forbidden_local_model_surfaces_out(live_ui) -> None:

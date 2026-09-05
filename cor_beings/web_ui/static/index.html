@@ -6,12 +6,12 @@ TODO: Add keyboard drag-and-drop ordering if pinned chats outgrow priority sorti
 TODO: Keep Web Search disabled until a dedicated product decision enables it.
 -->
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark">
   <title>Lion's Heart</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -179,7 +179,7 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
               <use href="#i-settings"></use>
             </svg>Settings</button><button id="api-keys-open" type="button"><svg>
               <use href="#i-globe"></use>
-            </svg>API keys</button><button id="appearance-open" type="button"><svg><use href="#i-sparkle"></use></svg>Appearance</button><button id="connections-open" type="button"><svg><use href="#i-grid"></use></svg>Connections</button><button id="theme-toggle" type="button"><svg><use id="theme-mode-icon" href="#i-moon"></use></svg><span id="theme-toggle-label">Dark Mode</span></button><button class="todo-control"
+            </svg>API keys</button><button id="appearance-open" type="button"><svg><use href="#i-sparkle"></use></svg>Appearance</button><button id="connections-open" type="button"><svg><use href="#i-grid"></use></svg>Connections</button><button class="todo-control"
             type="button" data-todo="Guided Tour is not connected"><svg><use href="#i-help"></use></svg>Guided Tour</button>
           <hr><button class="todo-control" type="button" data-todo="Help center is not connected"><svg><use href="#i-help"></use></svg>Help</button><button id="logout" type="button"><svg><use href="#i-logout"></use></svg>Log out</button><button class="todo-control" type="button" data-todo="Server shutdown needs an explicit owner-confirmation contract"><svg><use href="#i-power"></use></svg>Shut down</button>
         </div>
@@ -363,7 +363,7 @@ TODO: Keep Web Search disabled until a dedicated product decision enables it.
           </section>
           <section class="settings-panel" data-settings-panel="providers" hidden><h2>Providers</h2><p>Built-in and generic OpenAI-compatible connections use encrypted keys. Secrets are never returned to this page.</p><div id="provider-key-fields"></div><h3>Custom connections</h3><div class="provider-editor"><input id="provider-name" maxlength="80" placeholder="Friendly name, e.g. My Gateway"><input id="provider-base-url" maxlength="2048" inputmode="url" placeholder="https://api.example.com/v1"><input id="provider-models" maxlength="4000" placeholder="Model IDs, separated by commas"><input id="provider-secret" type="password" autocomplete="off" placeholder="API key"><button id="provider-add" type="button">Add provider</button></div><div id="provider-connections" class="provider-connections"></div></section>
           <section class="settings-panel" data-settings-panel="models" hidden><h2>Models</h2><label>Text model<input name="default_text_model" placeholder="Enter a remote model ID"></label><button id="discover-models" type="button">Discover models</button><div id="model-results"></div></section>
-          <section class="settings-panel" data-settings-panel="appearance" hidden><h2>Appearance</h2><label>Theme<select name="theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label></section>
+          <section class="settings-panel" data-settings-panel="appearance" hidden><h2>Appearance</h2><p>Lion Heart uses dark mode everywhere. Light mode is intentionally unavailable.</p></section>
           <section class="settings-panel" data-settings-panel="chat" hidden><h2>Chat</h2><label>System instructions<textarea name="system_prompt" rows="8"></textarea></label></section>
           <section class="settings-panel" data-settings-panel="tools" hidden><h2>Tools &amp; MCP</h2><p>Every tool call requires explicit approval. Automatic and full-access modes are unavailable.</p><div class="mcp-editor"><input id="mcp-name" placeholder="Connection name"><select id="mcp-transport"><option value="http">HTTPS</option><option value="stdio">stdio argv</option></select><input id="mcp-target" placeholder="https://server.example/mcp"><input id="mcp-credential" type="password" autocomplete="off" placeholder="Optional credential"><button id="mcp-add" type="button">Add connection</button></div><div id="mcp-list" class="resource-list"></div></section>
           <section class="settings-panel" data-settings-panel="projects" hidden><h2>Projects &amp; Data</h2><p>Durable projects and conversation history use Lion’s indexed storage.</p></section>

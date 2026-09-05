@@ -25,7 +25,7 @@ DEFAULTS: dict[str, object] = {
     "default_speech_model": "",
     "default_transcription_model": "",
     "system_prompt": "You are Lion, a helpful remote-provider coding assistant.",
-    "theme": "system",
+    "theme": "dark",
     "send_on_enter": True,
     "notify_on_completion": False,
     "retention_days": 90,
@@ -48,7 +48,15 @@ class SettingsBeing(Being):
         values = dict(DEFAULTS)
         for row in rows:
             if row["key"] in DEFAULTS:
-                values[row["key"]] = json.loads(row["value_json"])
+                value = json.loads(row["value_json"])
+                values[row["key"]] = value
+        if values["theme"] != "dark":
+            values["theme"] = "dark"
+            storage.execute(
+                "INSERT INTO settings(key, value_json, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+                ("theme", json.dumps("dark"), int(time.time())),
+            )
         self._validate(values)
         inferred_model = self._sole_custom_model(storage, values)
         if inferred_model is not None:
@@ -73,8 +81,8 @@ class SettingsBeing(Being):
         if not isinstance(provider, str) or _PROVIDER_ID.fullmatch(provider) is None:
             raise ValueError("default_provider must be a valid provider ID")
         theme = values.get("theme")
-        if theme not in ("system", "light", "dark"):
-            raise ValueError("theme must be system, light, or dark")
+        if theme != "dark":
+            raise ValueError("theme is fixed to dark")
         retention = values.get("retention_days")
         if not isinstance(retention, int) or isinstance(retention, bool) or retention < 1:
             raise ValueError("retention_days must be a positive integer")
@@ -93,6 +101,8 @@ class SettingsBeing(Being):
         if unknown:
             raise ValueError(f"unknown setting: {sorted(unknown)[0]}")
         effective_changes = dict(changes)
+        if "theme" in effective_changes and effective_changes["theme"] != "dark":
+            raise ValueError("theme is fixed to dark")
         merged = {**self._values, **effective_changes}
         self._validate(merged)
         storage = self._require_storage()

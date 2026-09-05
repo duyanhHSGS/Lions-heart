@@ -1,38 +1,17 @@
 /*
 TODO: Port remaining responsive polish when the UI grows beyond the chat shell.
 TODO: Keep every modal's content region independently scrollable at short viewport heights.
-TODO: Add custom palettes after the persisted theme contract proves stable.
+TODO: Audit every future surface for hard-coded light colors so dark-only mode stays universal.
 TODO: Replace local menu approximations only when their backend contracts exist.
 TODO: Keep this stylesheet standalone: no framework, CDN, bundler, or package install.
 */
 
 :root {
-  color-scheme: light;
-  --background: #fefefd;
-  --foreground: #383838;
-  --card: #ffffff;
-  --primary: #17b88b;
-  --muted: #f0f0f0;
-  --muted-foreground: #858279;
-  --border: #e9e9e6;
-  --sidebar: #ffffff;
-  --sidebar-border: #f2f2f2;
-  --nav-fg: #383835;
-  --nav-fg-muted: #858279;
-  --nav-surface-hover: #f0f0f0;
-  --nav-icon-idle: #8f8f8f;
-  --popover-shadow: 0 12px 34px rgba(0, 0, 0, 0.13), 0 2px 8px rgba(0, 0, 0, 0.08);
-  --sidebar-width: 280px;
-  --thread-max-width: 46rem;
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-family: var(--font-sans);
-}
-
-html.dark {
   color-scheme: dark;
   --background: #181818;
   --foreground: #ececec;
   --card: #212121;
+  --primary: #17b88b;
   --muted: #2e2e2e;
   --muted-foreground: #969696;
   --border: #303030;
@@ -43,6 +22,10 @@ html.dark {
   --nav-surface-hover: #2a2a2a;
   --nav-icon-idle: #969696;
   --popover-shadow: 0 12px 34px rgba(0, 0, 0, 0.38);
+  --sidebar-width: 280px;
+  --thread-max-width: 46rem;
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
 }
 
 * {
@@ -756,11 +739,6 @@ svg {
   flex-direction: column;
   padding: 12px;
   border-radius: 32px;
-  background: #ffffff;
-  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.16);
-}
-
-html.dark .composer {
   background: var(--card);
   box-shadow: none;
 }
@@ -1584,7 +1562,7 @@ kbd {
 .attachment-chip { border:1px solid var(--border, #d6d3ce); border-radius:999px; padding:5px 9px; background:transparent; color:inherit; font-size:12px; cursor:pointer; }
 .attachment-chip:hover { text-decoration:line-through; }
 /* TODO: Add prompt folders only when search stops being enough. */
-.small-dialog { width:min(620px,calc(100% - 24px)); max-height:85dvh; overflow:auto; background:var(--surface,#fff); color:var(--text,#222); border-radius:16px; padding:18px; box-shadow:0 20px 70px #0005; }
+.small-dialog { width:min(620px,calc(100% - 24px)); max-height:85dvh; overflow:auto; background:var(--card); color:var(--foreground); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow:0 20px 70px #0008; }
 .small-dialog header { display:flex; align-items:center; justify-content:space-between; }
 .small-dialog input,.small-dialog textarea,.mcp-editor input,.mcp-editor select { width:100%; box-sizing:border-box; margin:6px 0; padding:9px; border:1px solid var(--border); border-radius:8px; background:transparent; color:inherit; }
 .small-dialog textarea { min-height:130px; resize:vertical; }
@@ -1601,6 +1579,6 @@ kbd {
 .resource-row > button:first-of-type { flex:1; text-align:left; }
 /* TODO: Add focus trapping after the approval drawer gains multi-step details. */
 .approval-drawer { position:fixed; inset:0 0 0 auto; z-index:80; width:min(460px,100%); background:#0004; }
-.approval-drawer > div { height:100%; box-sizing:border-box; overflow:auto; padding:24px; background:var(--surface,#fff); color:var(--text,#222); box-shadow:-14px 0 50px #0004; }
+.approval-drawer > div { height:100%; box-sizing:border-box; overflow:auto; padding:24px; background:var(--card); color:var(--foreground); box-shadow:-14px 0 50px #0008; }
 .approval-drawer pre { white-space:pre-wrap; overflow-wrap:anywhere; padding:12px; border:1px solid var(--border); border-radius:10px; }
 .approval-drawer button { margin-right:8px; }
